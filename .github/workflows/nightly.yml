@@ -72,4 +72,3 @@ jobs:
             TESLA_CLIENT_ID=${{ secrets.TESLA_CLIENT_ID }}
           tags: |
             ghcr.io/jeffborg/evcc:nightly
-
