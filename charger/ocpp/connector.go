@@ -147,7 +147,7 @@ func (conn *Connector) NeedsAuthentication() bool {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	return conn.status != nil && conn.txnId == 0 && conn.status.Status == core.ChargePointStatusPreparing
+	return conn.status != nil && conn.txnId == 0 && (conn.status.Status == core.ChargePointStatusPreparing || conn.status.Status == core.ChargePointStatusFinishing)
 }
 
 // isMeterTimeout checks if meter values are outdated.
