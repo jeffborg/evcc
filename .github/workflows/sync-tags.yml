@@ -45,37 +45,46 @@ jobs:
 
       - name: Sync missing tags
         run: |
+          # Define the starting tag
+          START_TAG="0.130.7"
+
+          # Convert version to numeric format for comparison
+          tag_to_numeric() {
+            echo "$1" | sed 's/\./_/g' | awk -F'_' '{ printf("%d%03d%03d", $1, $2, $3) }'
+          }
+
+          START_NUMERIC=$(tag_to_numeric $START_TAG)
+
           # Read tags from files
           PUBLIC_TAGS=$(cat public_tags.txt)
           EXISTING_TAGS=$(cat existing_tags.txt)
 
-          START_TAG="0.130.7"
-
           for TAG in $PUBLIC_TAGS; do
-            # Skip tags before the start tag
-            if [[ "$TAG" < "$START_TAG" ]]; then
-              continue
-            fi
+            # Convert the current tag to numeric format
+            TAG_NUMERIC=$(tag_to_numeric $TAG)
 
-            # Generate the new tag name with .0 suffix
-            NEW_TAG="${TAG}.0"
+            # Check if the tag is greater than the starting tag
+            if [ "$TAG_NUMERIC" -gt "$START_NUMERIC" ]; then
+              # Generate the new tag name with .0 suffix
+              NEW_TAG="${TAG}.0"
 
-            # Check if the tag already exists
-            if ! echo "$EXISTING_TAGS" | grep -q "^${NEW_TAG}$"; then
-              echo "Processing new tag: $NEW_TAG"
+              # Check if the tag already exists
+              if ! echo "$EXISTING_TAGS" | grep -q "^${NEW_TAG}$"; then
+                echo "Processing new tag: $NEW_TAG"
 
-              # Create a new branch for the tag
-              git checkout -b "tag-${TAG}"
+                # Create a new branch for the tag
+                git checkout -b "tag-${TAG}"
 
-              # Merge the master branch into the new branch
-              git merge master --no-edit
+                # Merge the master branch into the new branch
+                git merge master --no-edit
 
-              # Tag the branch with .0 appended to the original tag name
-              git tag "${NEW_TAG}"
+                # Tag the branch with .0 appended to the original tag name
+                git tag "${NEW_TAG}"
 
-              # Push the new branch and tag to your repository
-              git push origin "tag-${TAG}"
-              git push origin "${NEW_TAG}"
+                # Push the new branch and tag to your repository
+                git push origin "tag-${TAG}"
+                git push origin "${NEW_TAG}"
+              fi
             fi
           done
 
