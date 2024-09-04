@@ -1,0 +1,83 @@
+name: Sync Missing Tags
+
+on:
+  schedule:
+    # Runs daily at midnight
+    - cron: "0 0 * * *"
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Fetch all branches and tags
+
+      - name: Set up Git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+      - name: Add public repo as remote
+        run: |
+          git remote add public https://github.com/evcc-io/evcc.git
+
+      - name: Fetch tags from the public repo
+        run: |
+          git fetch public --tags
+
+      - name: Get all tags from the public repo
+        id: get-public-tags
+        run: |
+          git tag -l | grep -E '^0\.[0-9]+\.[0-9]+$' > public_tags.txt
+          echo "Public tags:"
+          cat public_tags.txt
+
+      - name: Get existing tags in the repo
+        id: get-existing-tags
+        run: |
+          git tag -l | grep -E '^0\.[0-9]+\.[0-9]+\.0$' > existing_tags.txt
+          echo "Existing tags:"
+          cat existing_tags.txt
+
+      - name: Sync missing tags
+        run: |
+          # Read tags from files
+          PUBLIC_TAGS=$(cat public_tags.txt)
+          EXISTING_TAGS=$(cat existing_tags.txt)
+
+          START_TAG="0.130.7"
+
+          for TAG in $PUBLIC_TAGS; do
+            # Skip tags before the start tag
+            if [[ "$TAG" < "$START_TAG" ]]; then
+              continue
+            fi
+
+            # Generate the new tag name with .0 suffix
+            NEW_TAG="${TAG}.0"
+
+            # Check if the tag already exists
+            if ! echo "$EXISTING_TAGS" | grep -q "^${NEW_TAG}$"; then
+              echo "Processing new tag: $NEW_TAG"
+
+              # Create a new branch for the tag
+              git checkout -b "tag-${TAG}"
+
+              # Merge the master branch into the new branch
+              git merge master --no-edit
+
+              # Tag the branch with .0 appended to the original tag name
+              git tag "${NEW_TAG}"
+
+              # Push the new branch and tag to your repository
+              git push origin "tag-${TAG}"
+              git push origin "${NEW_TAG}"
+            fi
+          done
+
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
