@@ -64,7 +64,7 @@ require (
 	github.com/libp2p/zeroconf/v2 v2.2.0
 	github.com/lorenzodonini/ocpp-go v0.18.0
 	github.com/lunixbochs/struc v0.0.0-20200707160740-784aaebc1d40
-	github.com/mabunixda/wattpilot v1.8.1
+	github.com/mabunixda/wattpilot v1.8.4
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/mlnoga/rct v0.1.2-0.20240421173556-1c5b75037e2f
 	github.com/muka/go-bluetooth v0.0.0-20240701044517-04c4f09c514e
@@ -98,7 +98,7 @@ require (
 	golang.org/x/crypto/x509roots/fallback v0.0.0-20240806160748-b2d3a6a4b4d3
 	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948
 	golang.org/x/net v0.28.0
-	golang.org/x/oauth2 v0.22.0
+	golang.org/x/oauth2 v0.23.0
 	golang.org/x/sync v0.8.0
 	golang.org/x/text v0.17.0
 	golang.org/x/tools v0.24.0
@@ -121,6 +121,7 @@ require (
 	github.com/cstockton/go-conv v1.0.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/enbility/go-avahi v0.0.0-20240829083637-9ae2ef5f5ed2 // indirect
 	github.com/enbility/zeroconf/v2 v2.0.0-20240827101515-f3956627c450 // indirect
 	github.com/fatih/color v1.17.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
@@ -138,7 +139,6 @@ require (
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/grid-x/serial v0.0.0-20211107191517-583c7356b3aa // indirect
-	github.com/holoplot/go-avahi v0.0.0-20240210093433-b8dc0fc11e7e // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/influxdata/line-protocol v0.0.0-20210922203350-b1ad95c89adf // indirect
 	github.com/insomniacslk/xjson v0.0.0-20240821125711-1236daaf6808 // indirect
@@ -186,7 +186,7 @@ require (
 	gitlab.com/c0b/go-ordered-json v0.0.0-20201030195603-febf46534d5a // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/mod v0.20.0 // indirect
-	golang.org/x/sys v0.24.0 // indirect
+	golang.org/x/sys v0.25.0 // indirect
 	golang.org/x/term v0.23.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240823204242-4ba0660f739c // indirect
 	gopkg.in/go-playground/validator.v9 v9.31.0 // indirect
@@ -204,6 +204,8 @@ replace github.com/grid-x/modbus => github.com/evcc-io/modbus v0.0.0-20240503125
 
 replace github.com/lorenzodonini/ocpp-go => github.com/evcc-io/ocpp-go v0.0.0-20240730071053-d69e53b0fce9
 
-replace github.com/enbility/ship-go => github.com/enbility/ship-go v0.0.0-20240827103353-35c86c3ba136
+replace github.com/enbility/ship-go => github.com/enbility/ship-go v0.0.0-20240904104254-04d944c4f825
 
-replace github.com/enbility/eebus-go => github.com/enbility/eebus-go v0.0.0-20240827111001-330aad85c442
+replace github.com/enbility/spine-go => github.com/enbility/spine-go v0.0.0-20240907194637-0024041a4f36
+
+replace github.com/enbility/eebus-go => github.com/enbility/eebus-go v0.0.0-20240907200357-cd3e59d01934
