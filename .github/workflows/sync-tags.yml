@@ -21,11 +21,6 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
 
-      - name: Install GitHub CLI
-        uses: cli/cli@v2
-        with:
-          version: "latest"
-
       - name: Add public repo as remote
         run: |
           git remote add public https://github.com/evcc-io/evcc.git
