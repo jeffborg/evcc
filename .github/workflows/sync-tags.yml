@@ -73,7 +73,7 @@ jobs:
                 echo "Processing new tag: $NEW_TAG"
 
                 # Create a new branch for the tag
-                git checkout -b "tag-${TAG}"
+                git checkout -b "tag-${TAG}" ${TAG}
 
                 # Attempt to merge the master branch into the new branch
                 git merge master --no-edit || {
