@@ -15,6 +15,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0 # Fetch all branches and tags
+          token: ${{ secrets.EVCC_PAT }}
 
       - name: Set up Git
         run: |
