@@ -43,8 +43,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: refs/heads/master # force master
+          ref: refs/heads/evcc-master # force master
           fetch-depth: 0
+
+      - name: Merge our master branch into evcc-master for building
+        run: |
+          git merge origin/master --no-edit
 
       - name: Get dist from cache
         uses: actions/cache/restore@v4
