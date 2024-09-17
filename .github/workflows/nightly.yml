@@ -46,6 +46,11 @@ jobs:
           ref: refs/heads/evcc-master # force master
           fetch-depth: 0
 
+      - name: Set up Git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
       - name: Merge our master branch into evcc-master for building
         run: |
           git merge origin/master --no-edit
