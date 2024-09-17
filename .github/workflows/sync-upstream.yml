@@ -2,8 +2,8 @@ name: Sync evcc master Repo Branch
 
 on:
   schedule:
-    # Run the workflow daily at midnight
-    - cron: "0 0 * * *"
+    # Run the workflow daily at 6am
+    - cron: "0 20 * * *"
   workflow_dispatch: # Allows manual trigger of the workflow
 
 jobs:
