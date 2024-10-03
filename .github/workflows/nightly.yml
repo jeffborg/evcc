@@ -9,30 +9,30 @@ on:
   workflow_dispatch:
 
 jobs:
-  check_date:
-    runs-on: ubuntu-latest
-    name: Check latest commit
-    outputs:
-      should_run: ${{ steps.should_run.outputs.should_run }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: print latest_commit
-        run: echo ${{ github.sha }}
+  # check_date:
+  #   runs-on: ubuntu-latest
+  #   name: Check latest commit
+  #   outputs:
+  #     should_run: ${{ steps.should_run.outputs.should_run }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: print latest_commit
+  #       run: echo ${{ github.sha }}
 
-      - id: should_run
-        continue-on-error: true
-        name: check latest commit is less than a day
-        if: ${{ github.event_name == 'schedule' }}
-        run: test -z $(git rev-list  --after="24 hours" ${{ github.sha }}) && echo "should_run=false" >> $GITHUB_OUTPUT
+  #     - id: should_run
+  #       continue-on-error: true
+  #       name: check latest commit is less than a day
+  #       if: ${{ github.event_name == 'schedule' }}
+  #       run: test -z $(git rev-list  --after="24 hours" ${{ github.sha }}) && echo "should_run=false" >> $GITHUB_OUTPUT
 
-  call-build-workflow:
-    name: Call Build
-    needs: check_date
-    if: |
-      ${{ needs.check_date.outputs.should_run != 'false' }}
-      && startsWith(github.ref, 'refs/heads/master')
-      && ! contains(github.head_ref, 'refs/heads/chore/')
-    uses: evcc-io/evcc/.github/workflows/default.yml@master
+  # call-build-workflow:
+  #   name: Call Build
+  #   needs: check_date
+  #   if: |
+  #     ${{ needs.check_date.outputs.should_run != 'false' }}
+  #     && startsWith(github.ref, 'refs/heads/master')
+  #     && ! contains(github.head_ref, 'refs/heads/chore/')
+  #   uses: evcc-io/evcc/.github/workflows/default.yml@master
 
   docker:
     name: Publish Docker :nightly
@@ -53,7 +53,7 @@ jobs:
 
       - name: Merge our master branch into evcc-master for building
         run: |
-          git merge origin/master --no-commit --no-ff
+          git merge origin/master --no-commit --no-ff || true
           git reset -- /.github/workflows
           git commit -m "merge from evcc/master"
 
