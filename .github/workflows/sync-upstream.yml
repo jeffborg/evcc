@@ -16,6 +16,7 @@ jobs:
         with:
           # Fetch all branches
           fetch-depth: 0
+          token: ${{ secrets.EVCC_PAT }}
 
       - name: Set up Git
         run: |
@@ -41,5 +42,3 @@ jobs:
       - name: Push changes to evcc-master
         run: |
           git push origin evcc-master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
