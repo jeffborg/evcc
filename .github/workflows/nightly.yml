@@ -36,8 +36,8 @@ jobs:
 
   docker:
     name: Publish Docker :nightly
-    needs:
-      - call-build-workflow
+    # needs:
+    #   - call-build-workflow
     runs-on: ubuntu-latest
 
     steps:
@@ -53,7 +53,9 @@ jobs:
 
       - name: Merge our master branch into evcc-master for building
         run: |
-          git merge origin/master --no-edit
+          git merge origin/master --no-commit --no-ff
+          git reset -- /.github/workflows
+          git commit -m "merge from evcc/master"
 
       - name: Get dist from cache
         uses: actions/cache/restore@v4
