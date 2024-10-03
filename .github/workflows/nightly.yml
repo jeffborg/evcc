@@ -54,7 +54,7 @@ jobs:
       - name: Merge our master branch into evcc-master for building
         run: |
           git merge origin/master --no-commit --no-ff || true
-          git reset -- /.github/workflows
+          git reset -- .github/workflows
           git commit -m "merge from evcc/master"
 
       - name: Get dist from cache
