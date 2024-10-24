@@ -37,7 +37,8 @@ jobs:
             echo "Branch name does not match the expected pattern. Skipping tag creation."
             exit 1
           else
-            echo "Valid branch name: $TAG_NAME"
+            echo "Valid branch name: $TAG_NAME Saving for next step"
+            echo "BRANCH=$TAG_NAME" >> $GITHUB_ENV
           fi
         continue-on-error: true
 
@@ -48,7 +49,7 @@ jobs:
           git checkout "${{ env.BRANCH }}"
 
           # Create the new tag
-          NEW_TAG="${{ steps.get-branch.outputs.BRANCH }}.0"
+          NEW_TAG="${{ steps.validate-branch.outputs.BRANCH }}.0"
 
           # Tag the branch
           git tag "${NEW_TAG}"
