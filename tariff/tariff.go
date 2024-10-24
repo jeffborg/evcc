@@ -1,6 +1,7 @@
 package tariff
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -24,10 +25,10 @@ type Tariff struct {
 var _ api.Tariff = (*Tariff)(nil)
 
 func init() {
-	registry.Add(api.Custom, NewConfigurableFromConfig)
+	registry.AddCtx(api.Custom, NewConfigurableFromConfig)
 }
 
-func NewConfigurableFromConfig(other map[string]interface{}) (api.Tariff, error) {
+func NewConfigurableFromConfig(ctx context.Context, other map[string]interface{}) (api.Tariff, error) {
 	var cc struct {
 		embed    `mapstructure:",squash"`
 		Price    *provider.Config
@@ -49,14 +50,14 @@ func NewConfigurableFromConfig(other map[string]interface{}) (api.Tariff, error)
 	)
 
 	if cc.Price != nil {
-		priceG, err = provider.NewFloatGetterFromConfig(*cc.Price)
+		priceG, err = provider.NewFloatGetterFromConfig(ctx, *cc.Price)
 		if err != nil {
 			return nil, fmt.Errorf("price: %w", err)
 		}
 	}
 
 	if cc.Forecast != nil {
-		forecastG, err = provider.NewStringGetterFromConfig(*cc.Forecast)
+		forecastG, err = provider.NewStringGetterFromConfig(ctx, *cc.Forecast)
 		if err != nil {
 			return nil, fmt.Errorf("forecast: %w", err)
 		}
@@ -122,16 +123,17 @@ func (t *Tariff) priceRates() (api.Rates, error) {
 		return nil, err
 	}
 
-	res := make(api.Rates, 48)
+	res := make(api.Rates, 0, 48)
 	start := now.BeginningOfHour()
 
 	for i := 0; i < len(res); i++ {
 		slot := start.Add(time.Duration(i) * time.Hour)
-		res[i] = api.Rate{
+		rate := api.Rate{
 			Start: slot,
 			End:   slot.Add(time.Hour),
 			Price: t.totalPrice(price),
 		}
+		res = append(res, rate)
 	}
 
 	return res, nil
