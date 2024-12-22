@@ -40,6 +40,9 @@ RUN go mod download
 # install tools
 COPY Makefile .
 COPY tools.go .
+COPY cmd cmd
+COPY api api
+
 RUN make install
 
 # prepare
