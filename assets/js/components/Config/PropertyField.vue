@@ -46,9 +46,10 @@
 	<SelectGroup
 		v-else-if="boolean"
 		:id="id"
-		class="w-50"
 		v-model="value"
+		class="w-50"
 		equal-width
+		transparent
 		:options="[
 			{ value: false, name: $t('config.options.boolean.no') },
 			{ value: true, name: $t('config.options.boolean.yes') },
@@ -92,10 +93,14 @@
 import "@h2d2/shopicons/es/regular/minus";
 import VehicleIcon from "../VehicleIcon";
 import SelectGroup from "../SelectGroup.vue";
+import formatter from "../../mixins/formatter";
+
+const NS_PER_SECOND = 1000000000;
 
 export default {
 	name: "PropertyField",
 	components: { VehicleIcon, SelectGroup },
+	mixins: [formatter],
 	props: {
 		id: String,
 		property: String,
@@ -118,7 +123,7 @@ export default {
 			if (this.masked) {
 				return "password";
 			}
-			if (["Number", "Float", "Duration"].includes(this.type)) {
+			if (["Int", "Float", "Duration"].includes(this.type)) {
 				return "number";
 			}
 			return "text";
@@ -127,13 +132,13 @@ export default {
 			if (this.size) {
 				return this.size;
 			}
-			if (["Number", "Float", "Duration"].includes(this.type)) {
+			if (["Int", "Float", "Duration"].includes(this.type)) {
 				return "w-50 w-min-200";
 			}
 			return "";
 		},
 		endAlign() {
-			return ["Number", "Float", "Duration"].includes(this.type);
+			return ["Int", "Float", "Duration"].includes(this.type);
 		},
 		step() {
 			if (this.type === "Float" || this.type === "Duration") {
@@ -147,6 +152,9 @@ export default {
 			}
 			if (this.property === "capacity") {
 				return "kWh";
+			}
+			if (this.type === "Duration") {
+				return this.fmtSecondUnit(this.value);
 			}
 			return null;
 		},
@@ -202,6 +210,10 @@ export default {
 					return Array.isArray(this.modelValue) ? this.modelValue.join("\n") : "";
 				}
 
+				if (this.type === "Duration" && typeof this.modelValue === "number") {
+					return this.modelValue / NS_PER_SECOND;
+				}
+
 				return this.modelValue;
 			},
 			set(value) {
@@ -213,6 +225,10 @@ export default {
 
 				if (this.array) {
 					newValue = value ? value.split("\n") : [];
+				}
+
+				if (this.type === "Duration" && typeof newValue === "number") {
+					newValue = newValue * NS_PER_SECOND;
 				}
 
 				this.$emit("update:modelValue", newValue);

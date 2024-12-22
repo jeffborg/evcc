@@ -115,7 +115,7 @@ func (s *HTTPd) RegisterSiteHandlers(site site.API, valueChan chan<- util.Param)
 		"sessions":                {"GET", "/sessions", sessionHandler},
 		"updatesession":           {"PUT", "/session/{id:[0-9]+}", updateSessionHandler},
 		"deletesession":           {"DELETE", "/session/{id:[0-9]+}", deleteSessionHandler},
-		"telemetry":               {"GET", "/settings/telemetry", boolGetHandler(telemetry.Enabled)},
+		"telemetry":               {"GET", "/settings/telemetry", getHandler(telemetry.Enabled)},
 		"telemetry2":              {"POST", "/settings/telemetry/{value:[01truefalse]+}", boolHandler(telemetry.Enable, telemetry.Enabled)},
 	}
 
@@ -138,10 +138,11 @@ func (s *HTTPd) RegisterSiteHandlers(site site.API, valueChan chan<- util.Param)
 
 	// vehicle api
 	vehicles := map[string]route{
-		"minsoc":   {"POST", "/vehicles/{name:[a-zA-Z0-9_.:-]+}/minsoc/{value:[0-9]+}", minSocHandler(site)},
-		"limitsoc": {"POST", "/vehicles/{name:[a-zA-Z0-9_.:-]+}/limitsoc/{value:[0-9]+}", limitSocHandler(site)},
-		"plan":     {"POST", "/vehicles/{name:[a-zA-Z0-9_.:-]+}/plan/soc/{value:[0-9]+}/{time:[0-9TZ:.-]+}", planSocHandler(site)},
-		"plan2":    {"DELETE", "/vehicles/{name:[a-zA-Z0-9_.:-]+}/plan/soc", planSocRemoveHandler(site)},
+		"minsoc":         {"POST", "/vehicles/{name:[a-zA-Z0-9_.:-]+}/minsoc/{value:[0-9]+}", minSocHandler(site)},
+		"limitsoc":       {"POST", "/vehicles/{name:[a-zA-Z0-9_.:-]+}/limitsoc/{value:[0-9]+}", limitSocHandler(site)},
+		"plan":           {"POST", "/vehicles/{name:[a-zA-Z0-9_.:-]+}/plan/soc/{value:[0-9]+}/{time:[0-9TZ:.+-]+}", planSocHandler(site)},
+		"plan2":          {"DELETE", "/vehicles/{name:[a-zA-Z0-9_.:-]+}/plan/soc", planSocRemoveHandler(site)},
+		"repeatingPlans": {"POST", "/vehicles/{name:[a-zA-Z0-9_.:-]+}/plan/repeating", addRepeatingPlansHandler(site)},
 
 		// config ui
 		// "mode":       {"POST", "/mode/{value:[a-z]+}", chargeModeHandler(v)},
@@ -159,28 +160,29 @@ func (s *HTTPd) RegisterSiteHandlers(site site.API, valueChan chan<- util.Param)
 		api := api.PathPrefix(fmt.Sprintf("/loadpoints/%d", id+1)).Subrouter()
 
 		routes := map[string]route{
-			"mode":             {"POST", "/mode/{value:[a-z]+}", handler(eapi.ChargeModeString, pass(lp.SetMode), lp.GetMode)},
-			"limitsoc":         {"POST", "/limitsoc/{value:[0-9]+}", intHandler(pass(lp.SetLimitSoc), lp.GetLimitSoc)},
-			"limitenergy":      {"POST", "/limitenergy/{value:[0-9.]+}", floatHandler(pass(lp.SetLimitEnergy), lp.GetLimitEnergy)},
-			"mincurrent":       {"POST", "/mincurrent/{value:[0-9.]+}", floatHandler(lp.SetMinCurrent, lp.GetMinCurrent)},
-			"maxcurrent":       {"POST", "/maxcurrent/{value:[0-9.]+}", floatHandler(lp.SetMaxCurrent, lp.GetMaxCurrent)},
-			"phases":           {"POST", "/phases/{value:[0-9]+}", intHandler(lp.SetPhases, lp.GetPhases)},
-			"plan":             {"GET", "/plan", planHandler(lp)},
-			"planpreview":      {"GET", "/plan/preview/{type:(?:soc|energy)}/{value:[0-9.]+}/{time:[0-9TZ:.-]+}", planPreviewHandler(lp)},
-			"planenergy":       {"POST", "/plan/energy/{value:[0-9.]+}/{time:[0-9TZ:.-]+}", planEnergyHandler(lp)},
-			"planenergy2":      {"DELETE", "/plan/energy", planRemoveHandler(lp)},
-			"vehicle":          {"POST", "/vehicle/{name:[a-zA-Z0-9_.:-]+}", vehicleSelectHandler(site, lp)},
-			"vehicle2":         {"DELETE", "/vehicle", vehicleRemoveHandler(lp)},
-			"vehicleDetect":    {"PATCH", "/vehicle", vehicleDetectHandler(lp)},
-			"remotedemand":     {"POST", "/remotedemand/{demand:[a-z]+}/{source:[0-9a-zA-Z_-]+}", remoteDemandHandler(lp)},
-			"enableThreshold":  {"POST", "/enable/threshold/{value:-?[0-9.]+}", floatHandler(pass(lp.SetEnableThreshold), lp.GetEnableThreshold)},
-			"enableDelay":      {"POST", "/enable/delay/{value:[0-9]+}", durationHandler(pass(lp.SetEnableDelay), lp.GetEnableDelay)},
-			"disableThreshold": {"POST", "/disable/threshold/{value:-?[0-9.]+}", floatHandler(pass(lp.SetDisableThreshold), lp.GetDisableThreshold)},
-			"disableDelay":     {"POST", "/disable/delay/{value:[0-9]+}", durationHandler(pass(lp.SetDisableDelay), lp.GetDisableDelay)},
-			"smartCost":        {"POST", "/smartcostlimit/{value:-?[0-9.]+}", floatPtrHandler(pass(lp.SetSmartCostLimit), lp.GetSmartCostLimit)},
-			"smartCostDelete":  {"DELETE", "/smartcostlimit", floatPtrHandler(pass(lp.SetSmartCostLimit), lp.GetSmartCostLimit)},
-			"priority":         {"POST", "/priority/{value:[0-9]+}", intHandler(pass(lp.SetPriority), lp.GetPriority)},
-			"batteryBoost":     {"POST", "/batteryboost/{value:[01truefalse]}", boolHandler(lp.SetBatteryBoost, lp.GetBatteryBoost)},
+			"mode":                 {"POST", "/mode/{value:[a-z]+}", handler(eapi.ChargeModeString, pass(lp.SetMode), lp.GetMode)},
+			"limitsoc":             {"POST", "/limitsoc/{value:[0-9]+}", intHandler(pass(lp.SetLimitSoc), lp.GetLimitSoc)},
+			"limitenergy":          {"POST", "/limitenergy/{value:[0-9.]+}", floatHandler(pass(lp.SetLimitEnergy), lp.GetLimitEnergy)},
+			"mincurrent":           {"POST", "/mincurrent/{value:[0-9.]+}", floatHandler(lp.SetMinCurrent, lp.GetMinCurrent)},
+			"maxcurrent":           {"POST", "/maxcurrent/{value:[0-9.]+}", floatHandler(lp.SetMaxCurrent, lp.GetMaxCurrent)},
+			"phases":               {"POST", "/phases/{value:[0-9]+}", intHandler(lp.SetPhases, lp.GetPhases)},
+			"plan":                 {"GET", "/plan", planHandler(lp)},
+			"staticPlanPreview":    {"GET", "/plan/static/preview/{type:(?:soc|energy)}/{value:[0-9.]+}/{time:[0-9TZ:.+-]+}", staticPlanPreviewHandler(lp)},
+			"repeatingPlanPreview": {"GET", "/plan/repeating/preview/{soc:[0-9]+}/{weekdays:[0-6,]+}/{time:[0-2][0-9]:[0-5][0-9]}/{tz:[a-zA-Z0-9_./:-]+}", repeatingPlanPreviewHandler(lp)},
+			"planenergy":           {"POST", "/plan/energy/{value:[0-9.]+}/{time:[0-9TZ:.+-]+}", planEnergyHandler(lp)},
+			"planenergy2":          {"DELETE", "/plan/energy", planRemoveHandler(lp)},
+			"vehicle":              {"POST", "/vehicle/{name:[a-zA-Z0-9_.:-]+}", vehicleSelectHandler(site, lp)},
+			"vehicle2":             {"DELETE", "/vehicle", vehicleRemoveHandler(lp)},
+			"vehicleDetect":        {"PATCH", "/vehicle", vehicleDetectHandler(lp)},
+			"remotedemand":         {"POST", "/remotedemand/{demand:[a-z]+}/{source:[0-9a-zA-Z_-]+}", remoteDemandHandler(lp)},
+			"enableThreshold":      {"POST", "/enable/threshold/{value:-?[0-9.]+}", floatHandler(pass(lp.SetEnableThreshold), lp.GetEnableThreshold)},
+			"enableDelay":          {"POST", "/enable/delay/{value:[0-9]+}", durationHandler(pass(lp.SetEnableDelay), lp.GetEnableDelay)},
+			"disableThreshold":     {"POST", "/disable/threshold/{value:-?[0-9.]+}", floatHandler(pass(lp.SetDisableThreshold), lp.GetDisableThreshold)},
+			"disableDelay":         {"POST", "/disable/delay/{value:[0-9]+}", durationHandler(pass(lp.SetDisableDelay), lp.GetDisableDelay)},
+			"smartCost":            {"POST", "/smartcostlimit/{value:-?[0-9.]+}", floatPtrHandler(pass(lp.SetSmartCostLimit), lp.GetSmartCostLimit)},
+			"smartCostDelete":      {"DELETE", "/smartcostlimit", floatPtrHandler(pass(lp.SetSmartCostLimit), lp.GetSmartCostLimit)},
+			"priority":             {"POST", "/priority/{value:[0-9]+}", intHandler(pass(lp.SetPriority), lp.GetPriority)},
+			"batteryBoost":         {"POST", "/batteryboost/{value:[01truefalse]}", boolHandler(lp.SetBatteryBoost, lp.GetBatteryBoost)},
 		}
 
 		for _, r := range routes {
@@ -190,9 +192,8 @@ func (s *HTTPd) RegisterSiteHandlers(site site.API, valueChan chan<- util.Param)
 }
 
 // RegisterSystemHandler provides system level handlers
-func (s *HTTPd) RegisterSystemHandler(valueChan chan<- util.Param, cache *util.Cache, shutdown func()) {
+func (s *HTTPd) RegisterSystemHandler(valueChan chan<- util.Param, cache *util.Cache, auth auth.Auth, shutdown func()) {
 	router := s.Server.Handler.(*mux.Router)
-	auth := auth.New()
 
 	// api
 	api := router.PathPrefix("/api").Subrouter()
@@ -238,7 +239,7 @@ func (s *HTTPd) RegisterSystemHandler(valueChan chan<- util.Param, cache *util.C
 			"devices":            {"GET", "/devices/{class:[a-z]+}", devicesHandler},
 			"device":             {"GET", "/devices/{class:[a-z]+}/{id:[0-9.]+}", deviceConfigHandler},
 			"devicestatus":       {"GET", "/devices/{class:[a-z]+}/{name:[a-zA-Z0-9_.:-]+}/status", deviceStatusHandler},
-			"dirty":              {"GET", "/dirty", boolGetHandler(ConfigDirty)},
+			"dirty":              {"GET", "/dirty", getHandler(ConfigDirty)},
 			"newdevice":          {"POST", "/devices/{class:[a-z]+}", newDeviceHandler},
 			"updatedevice":       {"PUT", "/devices/{class:[a-z]+}/{id:[0-9.]+}", updateDeviceHandler},
 			"deletedevice":       {"DELETE", "/devices/{class:[a-z]+}/{id:[0-9.]+}", deleteDeviceHandler},

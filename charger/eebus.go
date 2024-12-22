@@ -72,7 +72,7 @@ func NewEEBusFromConfig(other map[string]interface{}) (api.Charger, error) {
 	return NewEEBus(cc.Ski, cc.Ip, cc.Meter, cc.ChargedEnergy, cc.VasVW)
 }
 
-//go:generate go run ../cmd/tools/decorate.go -f decorateEEBus -b *EEBus -r api.Charger -t "api.Meter,CurrentPower,func() (float64, error)" -t "api.PhaseCurrents,Currents,func() (float64, float64, float64, error)" -t "api.ChargeRater,ChargedEnergy,func() (float64, error)"
+//go:generate decorate -f decorateEEBus -b *EEBus -r api.Charger -t "api.Meter,CurrentPower,func() (float64, error)" -t "api.PhaseCurrents,Currents,func() (float64, float64, float64, error)" -t "api.ChargeRater,ChargedEnergy,func() (float64, error)"
 
 // NewEEBus creates EEBus charger
 func NewEEBus(ski, ip string, hasMeter, hasChargedEnergy, vasVW bool) (api.Charger, error) {
@@ -331,7 +331,7 @@ func (c *EEBus) writeCurrentLimitData(evEntity spineapi.EntityRemoteInterface, c
 	}
 
 	// if VAS VW is available, limits are completely covered by it
-	// this way evcc can fully control the charging behaviour
+	// this way evcc can fully control the charging behavior
 	if c.writeLoadControlLimitsVASVW(evEntity, limits) {
 		c.mux.Lock()
 		defer c.mux.Unlock()
@@ -410,7 +410,7 @@ func (c *EEBus) hasActiveVASVW(evEntity spineapi.EntityRemoteInterface) bool {
 	return false
 }
 
-// provides support for the special VW VAS ISO15118-2 charging behaviour if supported
+// provides support for the special VW VAS ISO15118-2 charging behavior if supported
 // will return false if it isn't supported or successful
 //
 // this functionality allows to fully control charging without the EV actually having a

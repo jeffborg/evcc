@@ -1,11 +1,13 @@
 <template>
 	<div
-		class="d-flex justify-content-between gap-4 evcc-gray"
+		class="d-flex justify-content-between gap-3 evcc-gray align-items-start flex-wrap"
 		style="min-height: 24px"
 		data-testid="vehicle-status"
 	>
-		<div class="text-nowrap" data-testid="vehicle-status-charger">{{ chargerStatus }}</div>
-		<div class="d-flex flex-wrap justify-content-end gap-3">
+		<div class="charger-status" data-testid="vehicle-status-charger">
+			{{ chargerStatus }}
+		</div>
+		<div class="d-flex flex-wrap justify-content-end gap-3 flex-grow-1">
 			<!-- pv/phase timer -->
 			<div
 				v-if="pvTimerVisible"
@@ -259,73 +261,6 @@ export default {
 			planProjectedStartDuration: null,
 		};
 	},
-	mounted() {
-		this.updatePlanStartTooltip();
-		this.updatePlanActiveTooltip();
-		this.updateMinSocTooltip();
-		this.updatePhaseTooltip();
-		this.updatePvTooltip();
-		this.updateVehicleClimaterTooltip();
-		this.updateVehicleWelcomeTooltip();
-		this.updateSmartCostTooltip();
-		this.updateVehicleLimitTooltip();
-		this.updateAwaitingAuthorizationTooltip();
-		this.updateDisconnectRequiredTooltip();
-		this.updateDurations();
-
-		this.interval = setInterval(this.updateDurations, 1000 * 60);
-		this.updateBatteryBoostTooltip();
-	},
-	beforeUnmount() {
-		clearInterval(this.interval);
-	},
-	watch: {
-		planActiveTooltipContent() {
-			this.$nextTick(this.updatePlanActiveTooltip);
-		},
-		planStartTooltipContent() {
-			this.$nextTick(this.updatePlanStartTooltip);
-		},
-		minSocTooltipContent() {
-			this.$nextTick(this.updateMinSocTooltip);
-		},
-		phaseTimerContent() {
-			this.$nextTick(this.updatePhaseTooltip);
-		},
-		pvTimerContent() {
-			this.$nextTick(this.updatePvTooltip);
-		},
-		vehicleClimaterTooltipContent() {
-			this.$nextTick(this.updateVehicleClimaterTooltip);
-		},
-		vehicleWelcomeTooltipContent() {
-			this.$nextTick(this.updateVehicleWelcomeTooltip);
-		},
-		smartCostTooltipContent() {
-			this.$nextTick(this.updateSmartCostTooltip);
-		},
-		vehicleLimitTooltipContent() {
-			this.$nextTick(this.updateVehicleLimitTooltip);
-		},
-		awaitingAuthorizationTooltipContent() {
-			this.$nextTick(this.updateAwaitingAuthorizationTooltip);
-		},
-		disconnectRequiredTooltipContent() {
-			this.$nextTick(this.updateDisconnectRequiredTooltip);
-		},
-		batteryBoostTooltipContent() {
-			this.$nextTick(this.updateBatteryBoostTooltip);
-		},
-		planProjectedStart() {
-			this.updateDurations();
-		},
-		planProjectedEnd() {
-			this.updateDurations();
-		},
-		smartCostNextStart() {
-			this.updateDurations();
-		},
-	},
 	computed: {
 		phaseTimerActive() {
 			return (
@@ -560,6 +495,73 @@ export default {
 			return t("connected");
 		},
 	},
+	watch: {
+		planActiveTooltipContent() {
+			this.$nextTick(this.updatePlanActiveTooltip);
+		},
+		planStartTooltipContent() {
+			this.$nextTick(this.updatePlanStartTooltip);
+		},
+		minSocTooltipContent() {
+			this.$nextTick(this.updateMinSocTooltip);
+		},
+		phaseTimerContent() {
+			this.$nextTick(this.updatePhaseTooltip);
+		},
+		pvTimerContent() {
+			this.$nextTick(this.updatePvTooltip);
+		},
+		vehicleClimaterTooltipContent() {
+			this.$nextTick(this.updateVehicleClimaterTooltip);
+		},
+		vehicleWelcomeTooltipContent() {
+			this.$nextTick(this.updateVehicleWelcomeTooltip);
+		},
+		smartCostTooltipContent() {
+			this.$nextTick(this.updateSmartCostTooltip);
+		},
+		vehicleLimitTooltipContent() {
+			this.$nextTick(this.updateVehicleLimitTooltip);
+		},
+		awaitingAuthorizationTooltipContent() {
+			this.$nextTick(this.updateAwaitingAuthorizationTooltip);
+		},
+		disconnectRequiredTooltipContent() {
+			this.$nextTick(this.updateDisconnectRequiredTooltip);
+		},
+		batteryBoostTooltipContent() {
+			this.$nextTick(this.updateBatteryBoostTooltip);
+		},
+		planProjectedStart() {
+			this.updateDurations();
+		},
+		planProjectedEnd() {
+			this.updateDurations();
+		},
+		smartCostNextStart() {
+			this.updateDurations();
+		},
+	},
+	mounted() {
+		this.updatePlanStartTooltip();
+		this.updatePlanActiveTooltip();
+		this.updateMinSocTooltip();
+		this.updatePhaseTooltip();
+		this.updatePvTooltip();
+		this.updateVehicleClimaterTooltip();
+		this.updateVehicleWelcomeTooltip();
+		this.updateSmartCostTooltip();
+		this.updateVehicleLimitTooltip();
+		this.updateAwaitingAuthorizationTooltip();
+		this.updateDisconnectRequiredTooltip();
+		this.updateDurations();
+
+		this.interval = setInterval(this.updateDurations, 1000 * 60);
+		this.updateBatteryBoostTooltip();
+	},
+	beforeUnmount() {
+		clearInterval(this.interval);
+	},
 	methods: {
 		updateDurations() {
 			if (this.planProjectedStart) {
@@ -716,6 +718,9 @@ export default {
 </script>
 
 <style scoped>
+.charger-status {
+	padding-top: 2px;
+}
 .entry {
 	display: flex;
 	align-items: center;

@@ -29,10 +29,13 @@ func init() {
 }
 
 func NewConfigurableFromConfig(ctx context.Context, other map[string]interface{}) (api.Tariff, error) {
-	var cc struct {
+	cc := struct {
 		embed    `mapstructure:",squash"`
 		Price    *provider.Config
 		Forecast *provider.Config
+		Cache    time.Duration
+	}{
+		Cache: 15 * time.Minute,
 	}
 
 	if err := util.DecodeOther(other, &cc); err != nil {
@@ -41,6 +44,10 @@ func NewConfigurableFromConfig(ctx context.Context, other map[string]interface{}
 
 	if (cc.Price != nil) == (cc.Forecast != nil) {
 		return nil, fmt.Errorf("must have either price or forecast")
+	}
+
+	if err := cc.init(); err != nil {
+		return nil, err
 	}
 
 	var (
@@ -54,6 +61,8 @@ func NewConfigurableFromConfig(ctx context.Context, other map[string]interface{}
 		if err != nil {
 			return nil, fmt.Errorf("price: %w", err)
 		}
+
+		priceG = provider.Cached(priceG, cc.Cache)
 	}
 
 	if cc.Forecast != nil {
@@ -82,8 +91,7 @@ func NewConfigurableFromConfig(ctx context.Context, other map[string]interface{}
 func (t *Tariff) run(forecastG func() (string, error), done chan error) {
 	var once sync.Once
 
-	tick := time.NewTicker(time.Hour)
-	for ; true; <-tick.C {
+	for tick := time.Tick(time.Hour); ; <-tick {
 		var data api.Rates
 		if err := backoff.Retry(func() error {
 			s, err := forecastG()
@@ -94,7 +102,7 @@ func (t *Tariff) run(forecastG func() (string, error), done chan error) {
 				return backoff.Permanent(err)
 			}
 			for i, r := range data {
-				data[i].Price = t.totalPrice(r.Price)
+				data[i].Price = t.totalPrice(r.Price, r.Start)
 			}
 			return nil
 		}, bo()); err != nil {
@@ -123,17 +131,16 @@ func (t *Tariff) priceRates() (api.Rates, error) {
 		return nil, err
 	}
 
-	res := make(api.Rates, 0, 48)
+	res := make(api.Rates, 48)
 	start := now.BeginningOfHour()
 
-	for i := 0; i < len(res); i++ {
+	for i := range res {
 		slot := start.Add(time.Duration(i) * time.Hour)
-		rate := api.Rate{
+		res[i] = api.Rate{
 			Start: slot,
 			End:   slot.Add(time.Hour),
-			Price: t.totalPrice(price),
+			Price: t.totalPrice(price, slot),
 		}
-		res = append(res, rate)
 	}
 
 	return res, nil
