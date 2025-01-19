@@ -197,7 +197,7 @@ params:
     help:
       de: "Kann meist erst später eingetragen werden, siehe: https://docs.evcc.io/docs/features/vehicle"
       en: "Mostly this can be added later, see: https://docs.evcc.io/en/docs/features/vehicle"
-    type: stringlist
+    type: list
   - name: priority
     description:
       de: Priorität
@@ -222,7 +222,8 @@ params:
       de: "'de' für Deutsch und 'en' für Englisch"
       en: "'en' for English and 'de' for German"
     default: en
-    validvalues: ["de", "en"]
+    type: choice
+    choice: ["en", "de"]
   - name: icon
     description:
       de: Icon
@@ -231,29 +232,46 @@ params:
       de: "Icon in der Benutzeroberfläche"
       en: "Icon as shown in user interface"
     type: choice
-    validvalues:
+    choice:
       - car
       - bike
       - bus
       - moped
       - motorcycle
+      - rocket
       - scooter
+      - taxi
       - tractor
+      - rickshaw
       - shuttle
       - van
-      - heater
-      - heatpump
-      - waterheater
-      - laundry
-      - dishwasher
       - airpurifier
+      - battery
+      - bulb
       - climate
-      - cooler
-      - generic
-      - device
-      - meter
+      - coffeemaker
       - compute
+      - cooking
+      - cooler
+      - desktop
+      - device
+      - dishwasher
+      - dryer
+      - floorlamp
+      - generic
+      - heater
+      - heatexchange
+      - heatpump
+      - kettle
+      - laundry
+      - laundry2
+      - machine
+      - meter
+      - microwave
+      - pump
       - tool
+      - waterheater
+
   - name: ski
     required: true
     description:
@@ -345,13 +363,11 @@ presets:
         advanced: true
       - name: identifiers
         advanced: true
-        type: stringlist
       - name: priority
         advanced: true
       - name: cache
         default: 15m
         advanced: true
-        type: duration
   vehicle-common:
     params:
       - name: title
@@ -369,7 +385,6 @@ presets:
         advanced: true
       - name: identifiers
         advanced: true
-        type: stringlist
       - name: priority
         advanced: true
   vehicle-features:
