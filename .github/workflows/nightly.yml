@@ -71,11 +71,19 @@ jobs:
       - name: Setup Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: evcc/evcc
+          tags: |
+            type=raw,value=nightly
+            type=raw,value=nightly.{{date 'YYYYMMDD'}}-{{sha}}
+
       - name: Publish
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v6
           push: true
-          tags: |
-            ghcr.io/jeffborg/evcc:nightly
+          tags: ${{ steps.meta.outputs.tags }}
