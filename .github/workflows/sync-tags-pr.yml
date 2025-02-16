@@ -25,7 +25,7 @@ jobs:
 
       - name: Get merged branch name
         id: get-branch
-        run: echo "BRANCH=${{ github.event.pull_request.head.ref }}" >> $GITHUB_ENV
+        run: echo "BRANCH=${{ github.event.pull_request.base.ref }}" >> $GITHUB_ENV
 
       - name: Validate branch name
         id: validate-branch
