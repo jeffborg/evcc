@@ -39,7 +39,7 @@ jobs:
             exit 1
           else
             echo "Valid branch name: $TAG_NAME Saving for next step"
-            echo "BRANCH=$TAG_NAME" >> $GITHUB_ENV
+            echo "BRANCH=$TAG_NAME" >> $GITHUB_OUTPUT
           fi
         continue-on-error: true
 
