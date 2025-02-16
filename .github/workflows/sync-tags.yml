@@ -81,7 +81,7 @@ jobs:
                   # If there's a merge conflict, create a pull request
                   echo "Merge conflict detected for tag ${TAG}. Creating pull request."
                   git push origin "tag-${TAG}"
-                  gh pr create --title "Resolve merge conflict for tag ${NEW_TAG}" --body "A merge conflict was detected while syncing tag ${NEW_TAG}. Please resolve the conflict in this PR." --base master --head "tag-${TAG}"
+                  gh pr create --title "Resolve merge conflict for tag ${NEW_TAG}" --body "A merge conflict was detected while syncing tag ${NEW_TAG}. Please resolve the conflict in this PR." --head master --base "tag-${TAG}"
                   continue
                 }
                 # Tag the branch with .0 appended to the original tag name
