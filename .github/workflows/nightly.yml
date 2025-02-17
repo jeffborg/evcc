@@ -75,7 +75,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: evcc/evcc
+          images: ghcr.io/jeffborg/evcc
           tags: |
             type=raw,value=nightly
             type=raw,value=nightly.{{date 'YYYYMMDD'}}-{{sha}}
