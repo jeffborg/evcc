@@ -94,9 +94,9 @@ jobs:
         run: |
           repo="ghcr.io/jeffborg/evcc"
           tags=$(curl -s -H "Authorization: Bearer $GHCR_TOKEN" "https://api.github.com/users/jeffborg/packages/container/evcc/versions" | jq -r '.[] | select(.metadata.container.tags[] | startswith("nightly.")) | {id: .id, updated_at: .updated_at} | @base64')
-      
+
           sorted_tags=$(echo "$tags" | base64 --decode | jq -s 'sort_by(.updated_at) | reverse | .[2:]')
-      
+
           for tag in $(echo "$sorted_tags" | jq -r '.[].id'); do
             echo "Deleting tag ID: $tag"
             curl -s -X DELETE -H "Authorization: Bearer $GHCR_TOKEN" "https://api.github.com/users/jeffborg/packages/container/evcc/versions/$tag"
