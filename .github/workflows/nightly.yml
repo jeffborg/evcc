@@ -101,4 +101,3 @@ jobs:
             echo "Deleting tag ID: $tag"
             curl -s -X DELETE -H "Authorization: Bearer $GHCR_TOKEN" "https://api.github.com/users/jeffborg/packages/container/evcc/versions/$tag"
           done
-      
