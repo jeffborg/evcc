@@ -35,7 +35,7 @@ linters:
       - path: (.+)\.go$
         text: .regActualCurrent. is unused
       - path: (.+)\.go$
-        text: '`routeLogger` is unused'
+        text: "`routeLogger` is unused"
     paths:
       - third_party$
       - builtin$
