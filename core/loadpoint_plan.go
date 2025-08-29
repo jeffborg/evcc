@@ -12,7 +12,7 @@ import (
 
 const (
 	smallSlotDuration = 10 * time.Minute // small planner slot duration we might ignore
-	smallGapDuration  = 60 * time.Minute // small gap duration between planner slots we might ignore
+	smallGapDuration  = 30 * time.Minute // small gap duration between planner slots we might ignore
 )
 
 // TODO planActive is not guarded by mutex
