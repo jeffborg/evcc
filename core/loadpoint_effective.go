@@ -93,7 +93,7 @@ func (lp *Loadpoint) nextVehiclePlan() (time.Time, time.Duration, int, int) {
 		}
 
 		// calculate earliest required plan start
-		if plan := lp.nextActivePlan(12000.0, plans); plan != nil {
+		if plan := lp.nextActivePlan(lp.effectiveMaxPower(), plans); plan != nil {
 			return plan.End, plan.Precondition, plan.Soc, plan.Id
 		}
 	}
@@ -223,9 +223,9 @@ func (lp *Loadpoint) EffectiveMaxPower() float64 {
 	lp.RLock()
 	defer lp.RUnlock()
 
-	if circuitMaxPower := circuitMaxPower(lp.circuit); circuitMaxPower > 0 {
-		return min(lp.effectiveMaxPower(), circuitMaxPower)
-	}
+	// if circuitMaxPower := circuitMaxPower(lp.circuit); circuitMaxPower > 0 {
+	// 	return min(lp.effectiveMaxPower(), circuitMaxPower)
+	// }
 
 	return lp.effectiveMaxPower()
 }
