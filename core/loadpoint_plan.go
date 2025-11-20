@@ -135,7 +135,7 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 	}
 
 	goal, isSocBased := lp.GetPlanGoal()
-	maxPower := 12000.0
+	maxPower := lp.EffectiveMaxPower()
 	requiredDuration := lp.GetPlanRequiredDuration(goal, maxPower)
 	if requiredDuration <= 0 {
 		// continue a 100% plan as long as the vehicle is charging
@@ -192,7 +192,7 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 		case lp.clock.Now().Before(lp.planSlotEnd) && !lp.planSlotEnd.IsZero():
 			// don't stop an already running slot if goal was not met
 			lp.log.DEBUG.Printf("plan: continuing until end of slot at %s", lp.planSlotEnd.Round(time.Second).Local())
-			return true
+			return active
 		case requiredDuration < smallSlotDuration:
 			lp.log.DEBUG.Printf("plan: continuing for remaining %v", requiredDuration.Round(time.Second))
 			return true
