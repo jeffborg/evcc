@@ -93,7 +93,7 @@ func (lp *Loadpoint) nextVehiclePlan() (time.Time, time.Duration, int, int) {
 		}
 
 		// calculate earliest required plan start
-		if plan := lp.nextActivePlan(lp.effectiveMaxPower(), plans); plan != nil {
+		if plan := lp.nextActivePlan(12000, plans); plan != nil {
 			return plan.End, plan.Precondition, plan.Soc, plan.Id
 		}
 	}
