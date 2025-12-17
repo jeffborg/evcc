@@ -53,10 +53,10 @@ docs::
 
 lint::
 	golangci-lint run
-	go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest -test -category "-omitzero" -c 0 ./...
+	go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@v0.20.0 -test -category "-omitzero" -c 0 ./...
 
 modernize:
-	go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest -test -category "-omitzero" -fix ./...
+	go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@v0.20.0 -test -category "-omitzero" -fix ./...
 
 lint-ui::
 	npm run lint
@@ -80,7 +80,7 @@ test-ui::
 
 test::
 	@echo "Running testsuite"
-	CGO_ENABLED=0 go test $(BUILD_TAGS) ./...
+	CGO_ENABLED=0 go test $(BUILD_TAGS) -coverprofile=coverage.out -covermode=atomic ./...
 
 porcelain::
 	gofmt -w -l $$(find . -name '*.go')

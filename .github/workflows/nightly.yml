@@ -46,7 +46,7 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: refs/heads/evcc-master # force master
           fetch-depth: 0

@@ -6,24 +6,21 @@ products:
       en: Auth Demo Meter
 auth:
   type: demo
-  params: ["region", "token"]
+  params: ["region", "method"]
 params:
   - name: usage
     choice: ["grid"]
   - name: region
     description:
-      de: Server
-      en: Server
-    type: choice
-    choice: ["EU", "US", "CN"]
-  - name: token
+      generic: Region
+    choice: ["EU", "US", "CN", "ERROR"]
+  - name: method
     description:
-      de: Token
-      en: Token
+      generic: Authentication Method
+    choice: ["redirect", "device-code"]
   - name: power
     description:
-      de: Leistung
-      en: Power
+      generic: Power
     unit: W
     type: int
 
