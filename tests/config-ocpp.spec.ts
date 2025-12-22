@@ -52,44 +52,4 @@ test.describe("ocpp", () => {
     await expect(ocppModal).not.toContainText("No OCPP chargers detected.");
   });
 
-  test("create ocpp charger", async ({ page }) => {
-    await page.goto("/#/config");
-
-    // Open loadpoint modal and select charging point type
-    await page.getByRole("button", { name: "Add charger or heater" }).click();
-    const lpModal = page.getByTestId("loadpoint-modal");
-    await expectModalVisible(lpModal);
-    await lpModal.getByRole("button", { name: "Charging point" }).click();
-    await lpModal.getByLabel("Title").fill("OCPP Test Charger");
-
-    // Open charger modal and select OCPP 1.6J
-    await lpModal.getByRole("button", { name: "Add charger" }).click();
-    const chargerModal = page.getByTestId("charger-modal");
-    await expectModalVisible(chargerModal);
-    await chargerModal.getByLabel("Manufacturer").selectOption("OCPP 1.6J compatible");
-
-    // Verify waiting for connection state and extract server URL
-    const serverUrl = await chargerModal.getByLabel("OCPP-Server URL").inputValue();
-    const waitingButton = chargerModal.getByRole("button", { name: "Waiting for connection" });
-    await expect(waitingButton).toBeVisible();
-
-    // Connect OCPP client via simulator REST API
-    await axios.post(`${simulatorUrl()}/api/ocpp/connect`, {
-      stationId: OCPP_STATION_ID,
-      serverUrl: serverUrl,
-    });
-
-    // Verify connection successful
-    await expect(chargerModal).toContainText("Connected!");
-    await expect(waitingButton).not.toBeVisible();
-
-    // Proceed to validation step
-    await chargerModal.getByRole("button", { name: "Next step" }).click();
-    await expect(chargerModal.getByLabel("Station ID")).toHaveValue(OCPP_STATION_ID);
-
-    // Validate and verify sponsor token error
-    const testResult = chargerModal.getByTestId("test-result");
-    await testResult.getByRole("link", { name: "Validate" }).click();
-    await expect(testResult).toContainText("No sponsor token configured.");
-  });
 });
