@@ -2,7 +2,6 @@ import { test, expect } from "@playwright/test";
 import { start, stop, baseUrl } from "./evcc";
 import { startSimulator, stopSimulator, simulatorUrl } from "./simulator";
 import { expectModalVisible } from "./utils";
-import axios from "axios";
 
 test.use({ baseURL: baseUrl() });
 
