@@ -50,5 +50,4 @@ test.describe("ocpp", () => {
     await expect(ocppModal).toContainText([OCPP_STATION_ID, "Unknown"].join(""));
     await expect(ocppModal).not.toContainText("No OCPP chargers detected.");
   });
-
 });
