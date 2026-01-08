@@ -1,8 +1,33 @@
 package sponsor
 
+// LICENSE
+
+// Copyright (c) evcc.io (andig, naltatis, premultiply)
+
+// This module is NOT covered by the MIT license. All rights reserved.
+
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
 import (
+	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/evcc-io/evcc/api/proto/pb"
+	"github.com/evcc-io/evcc/util/cloud"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -33,49 +58,50 @@ func ConfigureSponsorship(token string) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	Subject = "EVCC"
+	if token == "" {
+		if sub := checkVictron(); sub != "" {
+			Subject = sub
+			return nil
+		}
 
-	// if token == "" {
-	// 	if sub := checkVictron(); sub != "" {
-	// 		Subject = sub
-	// 		return nil
-	// 	}
+		var err error
+		if token, err = readSerial(); token == "" || err != nil {
+			return err
+		}
+	}
 
-	// 	var err error
-	// 	if token, err = readSerial(); token == "" || err != nil {
-	// 		return err
-	// 	}
-	// }
+	Token = token
 
-	// conn, err := cloud.Connection()
-	// if err != nil {
-	// 	return err
-	// }
+	conn, err := cloud.Connection()
+	if err != nil {
+		return err
+	}
 
-	// client := pb.NewAuthClient(conn)
+	client := pb.NewAuthClient(conn)
 
-	// ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	// defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	// res, err := client.IsAuthorized(ctx, &pb.AuthRequest{Token: token})
-	// if err == nil && res.Authorized {
-	// 	Subject = res.Subject
-	// 	ExpiresAt = res.ExpiresAt.AsTime()
-	// 	Token = token
-	// }
+	res, err := client.IsAuthorized(ctx, &pb.AuthRequest{Token: token})
+	if err == nil && res.Authorized {
+		Subject = res.Subject
+		ExpiresAt = res.ExpiresAt.AsTime()
+	}
 
-	// if err != nil {
-	// 	if s, ok := status.FromError(err); ok && s.Code() != codes.Unknown {
-	// 		Subject = unavailable
-	// 		err = nil
-	// 	} else {
-	// 		err = fmt.Errorf("sponsortoken: %w", err)
-	// 	}
-	// }
+	if err != nil {
+		if s, ok := status.FromError(err); ok && s.Code() != codes.Unknown {
+			Subject = unavailable
+			err = nil
+		} else {
+			if strings.Contains(err.Error(), "token is expired") {
+				err = fmt.Errorf("%w - get a fresh one from https://sponsor.evcc.io", err)
+			} else {
+				err = fmt.Errorf("sponsortoken: %w", err)
+			}
+		}
+	}
 
-	// return err
-
-	return nil
+	return err
 }
 
 // redactToken returns a redacted version of the token showing only start and end characters
