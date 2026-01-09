@@ -1007,7 +1007,7 @@ func (site *Site) update(lp updater) {
 			)
 		}
 
-		site.log.WARN.Println("planner:", msg)
+		site.log.INFO.Println("planner:", msg)
 	}
 
 	// update battery after reading meters to ensure that (modbus) connection is open
