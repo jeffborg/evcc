@@ -9,7 +9,11 @@ import (
 	"github.com/evcc-io/evcc/core/planner"
 	"github.com/evcc-io/evcc/core/soc"
 	"github.com/evcc-io/evcc/core/vehicle"
-	"github.com/evcc-io/evcc/tariff"
+)
+
+const (
+	smallSlotDuration = 4 * time.Minute  // small planner slot duration we might ignore
+	smallGapDuration  = 15 * time.Minute // small gap duration between planner slots we might ignore
 )
 
 // TODO planActive is not guarded by mutex
@@ -169,7 +173,7 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 
 	if active {
 		// ignore short plans if not already active
-		if slotRemaining := lp.clock.Until(activeSlot.End); !lp.planActive && slotRemaining < tariff.SlotDuration && !planner.SlotHasSuccessor(activeSlot, plan) {
+		if slotRemaining := lp.clock.Until(activeSlot.End); !lp.planActive && slotRemaining < smallSlotDuration && !planner.SlotHasSuccessor(activeSlot, plan) {
 			lp.log.DEBUG.Printf("plan: slot too short- ignoring remaining %v", slotRemaining.Round(time.Second))
 			return false
 		}
@@ -184,15 +188,15 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 			// TODO check when schedule is implemented
 			lp.log.DEBUG.Println("plan: continuing after target time")
 			return true
-		case lp.clock.Now().Before(lp.planSlotEnd) && !lp.planSlotEnd.IsZero():
-			// don't stop an already running slot if goal was not met
-			lp.log.DEBUG.Printf("plan: continuing until end of slot at %s", lp.planSlotEnd.Round(time.Second).Local())
-			return true
-		case requiredDuration < tariff.SlotDuration:
+		// case lp.clock.Now().Before(lp.planSlotEnd) && !lp.planSlotEnd.IsZero():
+		// don't stop an already running slot if goal was not met
+		// lp.log.DEBUG.Printf("plan: continuing until end of slot at %s", lp.planSlotEnd.Round(time.Second).Local())
+		// return active
+		case requiredDuration < smallSlotDuration:
 			lp.log.DEBUG.Printf("plan: continuing for remaining %v", requiredDuration.Round(time.Second))
 			return true
-		case lp.clock.Until(planStart) < tariff.SlotDuration:
-			lp.log.DEBUG.Printf("plan: avoid re-start within %v, continuing for remaining %v", tariff.SlotDuration, lp.clock.Until(planStart).Round(time.Second))
+		case lp.clock.Until(planStart) < smallGapDuration:
+			lp.log.DEBUG.Printf("plan: avoid re-start within %v, continuing for remaining %v", smallGapDuration, lp.clock.Until(planStart).Round(time.Second))
 			return true
 		}
 	}
