@@ -1,2 +1,3 @@
 # Automatically resolve conflicts in .github/workflows by keeping the current branch's version (ours)
 .github/workflows/* merge=ours
+gitattributes merge=ours
