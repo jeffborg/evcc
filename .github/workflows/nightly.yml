@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: refs/heads/master # force our master
+          ref: refs/heads/evcc-master # force master
           fetch-depth: 0
           persist-credentials: false
 
@@ -59,9 +59,9 @@ jobs:
 
       - name: Merge our master branch into evcc-master for building
         run: |
-          git merge origin/evcc-master --no-commit --no-ff
-          # git reset -- .github/workflows
-          # git commit -m "merge from evcc/master"
+          git merge origin/master --no-commit --no-ff || true
+          git reset -- .github/workflows
+          git commit -m "merge from evcc/master"
 
       - name: Get dist from cache
         uses: actions/cache/restore@v5
