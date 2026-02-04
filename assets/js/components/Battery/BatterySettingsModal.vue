@@ -318,10 +318,7 @@ export default defineComponent({
 			return this.controllable && this.isModalVisible && this.smartCostAvailable;
 		},
 		gridChargeTariff() {
-			if (this.smartCostType === SMART_COST_TYPE.CO2) {
-				return this.forecast?.co2;
-			}
-			return this.forecast?.grid;
+			return this.forecast?.planner || [];
 		},
 		bufferOptions() {
 			const options = [];
