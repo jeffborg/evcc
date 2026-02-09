@@ -12,17 +12,46 @@ import (
 )
 
 const (
-	smallSlotDuration = 4 * time.Minute  // small planner slot duration we might ignore
+	smallSlotDuration = 3 * time.Minute  // small planner slot duration we might ignore
 	smallGapDuration  = 15 * time.Minute // small gap duration between planner slots we might ignore
 )
 
 // TODO planActive is not guarded by mutex
+
+// PlanLock contains information about a locked plan
+type PlanLock struct {
+	Time time.Time // target time (committed goal, persists during overrun)
+	Soc  int       // target soc
+	Id   int       // id (0=none, 1=static, 2+=repeating), needed to highlight the plan in ui
+}
+
+// clearPlanLock clears the locked plan goal
+func (lp *Loadpoint) clearPlanLock() {
+	lp.planLocked = PlanLock{}
+}
+
+// ClearPlanLock clears the locked plan goal
+func (lp *Loadpoint) ClearPlanLock() {
+	lp.Lock()
+	defer lp.Unlock()
+	lp.clearPlanLock()
+}
+
+// lockPlanGoal locks the current plan goal to handle overruns (soc-based plans)
+func (lp *Loadpoint) lockPlanGoal(planTime time.Time, soc int, id int) {
+	lp.planLocked = PlanLock{
+		Time: planTime,
+		Soc:  soc,
+		Id:   id,
+	}
+}
 
 // setPlanActive updates plan active flag
 func (lp *Loadpoint) setPlanActive(active bool) {
 	if !active {
 		lp.planOverrunSent = false
 		lp.planSlotEnd = time.Time{}
+		lp.clearPlanLock()
 	}
 	if lp.planActive != active {
 		lp.planActive = active
@@ -117,6 +146,7 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 
 	planTime := lp.EffectivePlanTime()
 	if planTime.IsZero() {
+		lp.log.DEBUG.Println("!! plan: plan time zero")
 		return false
 	}
 
@@ -135,6 +165,7 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 		if lp.planActive && isSocBased && goal == 100 {
 			return true
 		}
+		lp.log.DEBUG.Println("!! plan: required duration 0")
 
 		lp.finishPlan()
 		return false
@@ -144,6 +175,7 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 
 	plan = lp.GetPlan(planTime, requiredDuration, strategy.Precondition, strategy.Continuous)
 	if plan == nil {
+		lp.log.DEBUG.Println("!! plan: plan nil")
 		return false
 	}
 
@@ -178,6 +210,11 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 			return false
 		}
 
+		// lock the goal when soc-based plan becomes active for the first time
+		if lp.planLocked.Id == 0 && isSocBased {
+			lp.lockPlanGoal(planTime, int(goal), lp.getPlanId())
+		}
+
 		// remember last active plan's slot end time
 		lp.planSlotEnd = activeSlot.End
 	} else if lp.planActive {
@@ -188,15 +225,18 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 			// TODO check when schedule is implemented
 			lp.log.DEBUG.Println("plan: continuing after target time")
 			return true
-		// case lp.clock.Now().Before(lp.planSlotEnd) && !lp.planSlotEnd.IsZero():
+		// case lp.clock.Now().Before(lp.planSlotEnd) && !lp.planSlotEnd.IsZero() && requiredDuration > strategy.Precondition:
 		// don't stop an already running slot if goal was not met
 		// lp.log.DEBUG.Printf("plan: continuing until end of slot at %s", lp.planSlotEnd.Round(time.Second).Local())
 		// return active
-		case requiredDuration < smallSlotDuration:
+		case requiredDuration < smallSlotDuration && requiredDuration > strategy.Precondition:
 			lp.log.DEBUG.Printf("plan: continuing for remaining %v", requiredDuration.Round(time.Second))
 			return true
 		case lp.clock.Until(planStart) < smallGapDuration:
 			lp.log.DEBUG.Printf("plan: avoid re-start within %v, continuing for remaining %v", smallGapDuration, lp.clock.Until(planStart).Round(time.Second))
+			return true
+		case strategy.Continuous && requiredDuration > strategy.Precondition:
+			lp.log.DEBUG.Printf("plan: ignoring restart at %s for continuous charging", planStart.Round(time.Second).Local())
 			return true
 		}
 	}
