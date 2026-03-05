@@ -1,15 +1,18 @@
 <template>
 	<GenericModal
-		:id="modalId"
+		:id="`${name}Modal`"
 		ref="modal"
 		:title="modalTitle"
-		:data-testid="`${deviceType}-modal`"
-		:fade="fade"
+		:data-testid="`${name}-modal`"
 		:size="modalSize"
+		:config-modal-name="name"
 		@open="handleOpen"
 		@close="handleClose"
 		@visibilitychange="handleVisibilityChange"
 	>
+		<template #header-actions>
+			<DeviceInfoButton v-if="id" :id="id" />
+		</template>
 		<form ref="form" class="container mx-0 px-0">
 			<slot name="pre-content" :values="values"></slot>
 
@@ -55,6 +58,7 @@
 							v-bind="param"
 							v-model="values[param.Name]"
 							:service-values="serviceValues[param.Name]"
+							:currency="currency"
 						/>
 
 						<div v-if="auth.code">
@@ -126,6 +130,7 @@
 								v-bind="param"
 								v-model="values[param.Name]"
 								:service-values="serviceValues[param.Name]"
+								:currency="currency"
 							/>
 
 							<PropertyCollapsible>
@@ -137,6 +142,7 @@
 										v-bind="param"
 										v-model="values[param.Name]"
 										:service-values="serviceValues[param.Name]"
+										:currency="currency"
 									/>
 								</template>
 								<template v-if="$slots['collapsible-more']" #more>
@@ -155,6 +161,7 @@
 					:is-succeeded="succeeded"
 					:is-new="isNew"
 					:sponsor-token-required="sponsorTokenRequired"
+					:currency="currency"
 					@save="handleSave"
 					@remove="handleRemove"
 					@test="testManually"
@@ -166,7 +173,9 @@
 
 <script lang="ts">
 import { defineComponent, type PropType } from "vue";
-import GenericModal, { type ModalFade } from "../../Helper/GenericModal.vue";
+import GenericModal from "../../Helper/GenericModal.vue";
+import DeviceInfoButton from "./DeviceInfoButton.vue";
+import { closeModal } from "@/configModal";
 import ErrorMessage from "../../Helper/ErrorMessage.vue";
 import PropertyEntry from "../PropertyEntry.vue";
 import PropertyCollapsible from "../PropertyCollapsible.vue";
@@ -183,6 +192,7 @@ import { initialAuthState, prepareAuthLogin } from "../utils/authProvider";
 import sleep from "@/utils/sleep";
 import { ConfigType } from "@/types/evcc";
 import type { DeviceType, Timeout } from "@/types/evcc";
+import { CURRENCY } from "@/types/evcc";
 import {
 	handleError,
 	type DeviceValues,
@@ -204,6 +214,7 @@ export default defineComponent({
 	name: "DeviceModalBase",
 	components: {
 		GenericModal,
+		DeviceInfoButton,
 		ErrorMessage,
 		PropertyEntry,
 		PropertyCollapsible,
@@ -219,17 +230,17 @@ export default defineComponent({
 	props: {
 		deviceType: { type: String as PropType<DeviceType>, required: true },
 		id: Number as PropType<number | undefined>,
-		fade: String as PropType<ModalFade>,
+		name: String,
 		isSponsor: Boolean,
 		// Computed/derived props that must be provided by parent
 		modalTitle: { type: String, required: true },
 		initialValues: { type: Object as PropType<DeviceValues>, required: true },
 		customFields: { type: Array as PropType<string[]>, default: () => CUSTOM_FIELDS },
-		modalId: { type: String, required: true },
 		// Optional: whether to show main content (for multi-step modals like MeterModal)
 		showMainContent: { type: Boolean, default: true },
 		// Optional: usage parameter for loadProducts (e.g., meter type: "pv", "battery", "aux", "ext")
 		usage: String,
+		currency: { type: String as PropType<CURRENCY>, default: CURRENCY.EUR },
 		// Optional: custom product name computation
 		getProductName: Function as PropType<
 			(values: DeviceValues, templateName: string | null) => string
@@ -454,7 +465,6 @@ export default defineComponent({
 				this.$emit("update:externalTemplate", newValue);
 			}
 
-			console.log("templateName changed", { newValue, oldValue });
 			// Reset values when template changes (except on initial load or when switching to YAML input)
 			// YAML input types set values.type and values.yaml in handleTemplateChange callback
 			if (oldValue != null) {
@@ -500,7 +510,6 @@ export default defineComponent({
 		},
 		values: {
 			handler() {
-				this.test = initialTestState();
 				this.updateServiceValues();
 			},
 			deep: true,
@@ -658,7 +667,7 @@ export default defineComponent({
 				this.succeeded = true;
 				await sleep(500);
 				this.$emit("added", name);
-				(this.$refs["modal"] as any).close();
+				await closeModal({ action: "added", name });
 			} catch (e) {
 				handleError(e, "create failed");
 				this.saving = false;
@@ -671,7 +680,6 @@ export default defineComponent({
 			return this.device.test(this.id, this.apiData);
 		},
 		async update(force = false) {
-			console.log("update called", { force, isUnknown: this.test.isUnknown, id: this.id });
 			if (this.test.isUnknown && !force) {
 				const success = await performTest(
 					this.test,
@@ -685,14 +693,12 @@ export default defineComponent({
 			}
 			this.saving = true;
 			try {
-				console.log("calling device.update", this.apiData);
 				await this.device.update(this.id!, this.apiData, force);
-				console.log("update succeeded, closing modal");
 				this.saving = false;
 				this.succeeded = true;
 				await sleep(500);
 				this.$emit("updated");
-				(this.$refs["modal"] as any).close();
+				await closeModal({ action: "updated" });
 			} catch (e) {
 				console.error("update failed", e);
 				handleError(e, "update failed");
@@ -703,7 +709,7 @@ export default defineComponent({
 			try {
 				await this.device.remove(this.id!);
 				this.$emit("removed");
-				(this.$refs["modal"] as any).close();
+				await closeModal({ action: "removed" });
 			} catch (e) {
 				handleError(e, "remove failed");
 			}

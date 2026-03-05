@@ -68,9 +68,13 @@
 
 	--bs-primary: var(--evcc-darker-green);
 	--bs-primary-rgb: var(--evcc-darker-green-rgb);
+	--bs-primary-dim: color-mix(in srgb, var(--bs-primary) 50%, transparent);
 
 	--bs-warning: var(--evcc-orange);
 	--bs-warning-rgb: var(--evcc-orange-rgb);
+	--bs-warning-bg-subtle: color-mix(in srgb, var(--evcc-orange) 10%, transparent);
+	--bs-warning-border-subtle: color-mix(in srgb, var(--evcc-orange) 30%, transparent);
+	--bs-warning-text-emphasis: var(--evcc-orange);
 	--bs-danger-50: #dc354580;
 
 	--bs-danger: var(--evcc-red);
@@ -78,6 +82,8 @@
 
 	--bs-danger: var(--evcc-red);
 	--bs-danger-rgb: var(--evcc-red-rgb);
+
+	--bs-form-invalid-border-color: var(--bs-danger);
 
 	--bs-body-font-size: 14px;
 	--bs-font-sans-serif:
@@ -106,6 +112,7 @@
 	--evcc-accent2: var(--evcc-dark-green);
 	--evcc-accent3: var(--evcc-darker-green);
 	--bs-primary: var(--evcc-dark-green);
+	--bs-primary-dim: color-mix(in srgb, var(--bs-primary) 70%, transparent);
 	--bs-border-color-translucent: rgba(255, 255, 255, 0.175);
 	--bs-code-color: var(--evcc-dark-green);
 	--evcc-backdrop: #000000aa; /* black + transparent */
@@ -497,6 +504,10 @@ small {
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
+.form-select.disabled,
+.form-select:disabled {
+	background-color: var(--bs-secondary-bg);
+}
 
 .dark .dropdown-menu {
 	box-shadow: 0 0 8px var(--evcc-background);
@@ -511,6 +522,7 @@ small {
 	color: var(--bs-gray-medium) !important;
 }
 
+.dark .form-select.disabled,
 .dark .form-select:disabled {
 	opacity: 0.5;
 }
@@ -772,4 +784,27 @@ input::-webkit-date-and-time-value {
 }
 .tabular {
 	font-variant-numeric: tabular-nums;
+}
+
+/* Collapsible wrapper pattern with choreographed animation */
+.collapsible-wrapper {
+	display: grid;
+	grid-template-rows: 0fr;
+	transition: grid-template-rows var(--evcc-transition-fast) ease 0.2s;
+}
+
+.collapsible-wrapper.open {
+	grid-template-rows: 1fr;
+	transition: grid-template-rows var(--evcc-transition-fast) ease;
+}
+
+.collapsible-content {
+	overflow: hidden;
+	opacity: 0;
+	transition: opacity 0.2s ease;
+}
+
+.collapsible-wrapper.open .collapsible-content {
+	opacity: 1;
+	transition: opacity var(--evcc-transition-fast) ease 0.2s;
 }

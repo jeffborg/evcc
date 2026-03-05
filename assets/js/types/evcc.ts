@@ -41,11 +41,7 @@ export interface HemsStatus {
   maxPower: number;
 }
 
-export interface Hems {
-  status?: HemsStatus;
-  config: HemsConfig;
-  fromYaml: boolean;
-}
+export type Hems = ConfigStatus<HemsConfig, HemsStatus>;
 
 export interface ShmConfig {
   vendorId: string;
@@ -77,18 +73,20 @@ export interface State {
   pv?: Meter[];
   aux?: Meter[];
   ext?: Meter[];
+  tariffs?: ConfigStatus<unknown, unknown>;
   tariffGrid?: number;
   tariffFeedIn?: number;
   tariffCo2?: number;
   tariffSolar?: number;
   mqtt?: MqttConfig;
   influx?: InfluxConfig;
-  hems?: Hems;
+  hems?: ConfigStatus<HemsConfig, HemsStatus>;
   shm?: ShmConfig;
-  sponsor?: Sponsor;
-  eebus?: Eebus;
+  sponsor?: ConfigStatus<unknown, SponsorStatus>;
+  eebus?: ConfigStatus<EebusConfig, EebusStatus>;
   modbusproxy?: ModbusProxy[];
-  messaging?: any;
+  messaging?: ConfigStatus<unknown, unknown>;
+  messagingEvents?: MessagingEvents;
   interval?: number;
   circuits?: Record<string, Circuit>;
   siteTitle?: string;
@@ -98,6 +96,14 @@ export interface State {
   database?: string;
   ocpp?: Ocpp;
 }
+
+export interface ConfigStatus<C, S> {
+  config?: C;
+  status?: S;
+  yamlSource?: YamlSource;
+}
+
+export type YamlSource = "file" | "db" | undefined;
 
 export interface OcppConfig {
   port: number;
@@ -158,6 +164,7 @@ export enum ConfigType {
 }
 
 export type ConfigVehicle = Entity;
+export type ConfigMessenger = Entity;
 
 // Configuration-specific types for device setup/configuration contexts
 export interface ConfigCharger extends Omit<Entity, "type"> {
@@ -320,11 +327,16 @@ export enum CURRENCY {
   CAD = "CAD",
   CHF = "CHF",
   CNY = "CNY",
+  CZK = "CZK",
   EUR = "EUR",
   GBP = "GBP",
+  HUF = "HUF",
   ILS = "ILS",
+  JPY = "JPY",
   NZD = "NZD",
+  NOK = "NOK",
   PLN = "PLN",
+  RON = "RON",
   USD = "USD",
   DKK = "DKK",
   SEK = "SEK",
@@ -384,6 +396,7 @@ export type SessionInfoKey =
   | "solar"
   | "avgPrice"
   | "price"
+  | "emission"
   | "co2";
 
 export interface SponsorStatus {
@@ -393,10 +406,7 @@ export interface SponsorStatus {
   token?: string;
 }
 
-export interface Sponsor {
-  status?: SponsorStatus;
-  fromYaml: boolean;
-}
+export type Sponsor = ConfigStatus<any, SponsorStatus>;
 
 export type VehicleOption = {
   key?: string | null;
@@ -445,11 +455,7 @@ export type Certificate = {
   private: string;
 };
 
-export type Eebus = {
-  config: EebusConfig;
-  status: EebusStatus;
-  fromYaml?: boolean;
-};
+export type Eebus = ConfigStatus<EebusConfig, EebusStatus>;
 
 export type EebusConfig = {
   uri: string;
@@ -468,6 +474,25 @@ export type ModbusProxy = {
   readonly: MODBUS_PROXY_READONLY;
   settings: ModbusProxySettings;
 };
+
+export type MessagingEvents = Record<MESSAGING_EVENTS, MessagingEvent>;
+
+export enum MESSAGING_EVENTS {
+  START = "start",
+  STOP = "stop",
+  CONNECT = "connect",
+  DISCONNECT = "disconnect",
+  SOC = "soc",
+  GUEST = "guest",
+  ASLEEP = "asleep",
+  PLANOVERRUN = "planoverrun",
+}
+
+export interface MessagingEvent {
+  title: string;
+  msg: string;
+  disabled: boolean;
+}
 
 export interface ModbusProxySettings {
   uri?: string;
@@ -492,11 +517,17 @@ export interface Meter {
   energy?: number;
 }
 
+export interface BatteryForecast {
+  full: string | null; // ISO 8601 datetime
+  empty: string | null; // ISO 8601 datetime
+}
+
 export interface Battery {
   power: number;
   capacity: number;
   soc: number;
-  devices: BatteryMeter[];
+  devices?: BatteryMeter[];
+  forecast?: BatteryForecast;
 }
 
 export interface BatteryMeter extends Meter {
@@ -519,6 +550,11 @@ export interface Vehicle {
 }
 
 export type Timeout = ReturnType<typeof setInterval> | null;
+
+export interface VehicleStatus {
+  message: string;
+  type?: string;
+}
 
 export interface Tariff {
   rates: Rate[];
@@ -558,9 +594,10 @@ export interface SelectOption<T> {
   disabled?: boolean;
 }
 
-export type DeviceType = "charger" | "meter" | "vehicle" | "loadpoint";
+export type DeviceType = "charger" | "meter" | "vehicle" | "loadpoint" | "messenger" | "tariff";
 export type MeterType = "grid" | "pv" | "battery" | "charge" | "aux" | "ext";
 export type MeterTemplateUsage = "grid" | "pv" | "battery" | "charge" | "aux";
+export type TariffType = "grid" | "feedIn" | "co2" | "planner" | "solar";
 
 // see https://stackoverflow.com/a/54178819
 type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
@@ -666,4 +703,12 @@ export interface OptimizationDetails {
 // Error response
 export interface Error {
   message: string; // Error description
+}
+
+// Tariff zone configuration
+export interface Zone {
+  price: number | null;
+  days: string;
+  months: string;
+  hours: string;
 }

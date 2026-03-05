@@ -27,7 +27,7 @@ import (
 	"github.com/evcc-io/evcc/core/soc"
 	"github.com/evcc-io/evcc/core/types"
 	"github.com/evcc-io/evcc/core/vehicle"
-	"github.com/evcc-io/evcc/push"
+	"github.com/evcc-io/evcc/messenger"
 	"github.com/evcc-io/evcc/server/db"
 	"github.com/evcc-io/evcc/server/db/settings"
 	"github.com/evcc-io/evcc/tariff"
@@ -369,7 +369,7 @@ func (site *Site) DumpConfig() {
 	if vehicles := site.Vehicles().Instances(); len(vehicles) > 1 {
 		for _, v := range vehicles {
 			if _, ok := v.(api.ChargeState); !ok && len(v.Identifiers()) == 0 {
-				site.log.WARN.Printf("vehicle '%s' does not support automatic detection", v.GetTitle())
+				site.log.INFO.Printf("vehicle '%s' does not support automatic detection", v.GetTitle())
 			}
 		}
 	}
@@ -600,9 +600,9 @@ func (site *Site) updatePvMeters() {
 }
 
 // updateBatteryMeters updates battery meters
-func (site *Site) updateBatteryMeters() []types.Measurement {
+func (site *Site) updateBatteryMeters() {
 	if len(site.batteryMeters) == 0 {
-		return nil
+		return
 	}
 
 	mm := site.collectMeters("battery", site.batteryMeters)
@@ -614,10 +614,10 @@ func (site *Site) updateBatteryMeters() []types.Measurement {
 		if m, ok := meter.(api.Battery); ok {
 			batSoc, err := soc.Guard(m.Soc())
 			if err == nil {
-				mm[i].Soc = lo.ToPtr(batSoc)
+				mm[i].Soc = new(batSoc)
 
 				if m, ok := m.(api.BatteryCapacity); ok {
-					mm[i].Capacity = lo.ToPtr(m.Capacity())
+					mm[i].Capacity = new(m.Capacity())
 				}
 
 				site.log.DEBUG.Printf("battery %d soc: %.0f%%", i+1, batSoc)
@@ -627,7 +627,7 @@ func (site *Site) updateBatteryMeters() []types.Measurement {
 		}
 
 		_, controllable := meter.(api.BatteryController)
-		mm[i].Controllable = lo.ToPtr(controllable)
+		mm[i].Controllable = new(controllable)
 	}
 
 	batterySocAcc := lo.SumBy(mm, func(m types.Measurement) float64 {
@@ -667,9 +667,8 @@ func (site *Site) updateBatteryMeters() []types.Measurement {
 	}
 
 	site.battery.Devices = mm
-	site.publish(keys.Battery, site.battery)
 
-	return mm
+	site.publish(keys.Battery, site.battery)
 }
 
 // updateAuxMeters updates aux meters
@@ -756,10 +755,8 @@ func (site *Site) updateGridMeter() error {
 func (site *Site) updateMeters() error {
 	var eg errgroup.Group
 
-	var battery []types.Measurement
-
 	eg.Go(func() error { site.updatePvMeters(); return nil })
-	eg.Go(func() error { battery = site.updateBatteryMeters(); return nil })
+	eg.Go(func() error { site.updateBatteryMeters(); return nil })
 	eg.Go(func() error { site.updateAuxMeters(); return nil })
 	eg.Go(func() error { site.updateExtMeters(); return nil })
 
@@ -770,7 +767,7 @@ func (site *Site) updateMeters() error {
 	}
 
 	if sponsor.IsAuthorized() {
-		go site.optimizerUpdateAsync(battery)
+		go site.optimizerUpdateAsync()
 	}
 
 	return nil
@@ -853,7 +850,7 @@ func (site *Site) sitePower(totalChargePower, flexiblePower float64) (float64, b
 		} else {
 			// if battery is above bufferSoc allow using it for charging
 			batteryBuffered = site.bufferSoc > 0 && site.battery.Soc > site.bufferSoc
-			batteryStart = site.bufferStartSoc > 0 && site.battery.Soc > site.bufferStartSoc
+			batteryStart = site.bufferStartSoc > 0 && site.battery.Soc >= site.bufferStartSoc
 		}
 	}
 
@@ -1033,7 +1030,7 @@ func (site *Site) prepare() {
 }
 
 // Prepare attaches communication channels to site and loadpoints
-func (site *Site) Prepare(valueChan chan<- util.Param, pushChan chan<- push.Event) {
+func (site *Site) Prepare(valueChan chan<- util.Param, pushChan chan<- messenger.Event) {
 	// https://github.com/evcc-io/evcc/issues/11191 prevent deadlock
 	// https://github.com/evcc-io/evcc/pull/11675 maintain message order
 
@@ -1056,7 +1053,7 @@ func (site *Site) Prepare(valueChan chan<- util.Param, pushChan chan<- push.Even
 
 	for id, lp := range site.loadpoints {
 		lpUIChan := make(chan util.Param)
-		lpPushChan := make(chan push.Event)
+		lpPushChan := make(chan messenger.Event)
 
 		// pipe messages through go func to add id
 		go func(id int) {

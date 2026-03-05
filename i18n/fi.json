@@ -99,7 +99,7 @@
     },
     "control": {
       "description": "Yleensä oletusarvot ovat sopivat. Muuta vain jos tiedät mitä olet tekemässä.",
-      "descriptionInterval": "Päivitysjakso sekunneissa. Määrittää, kuinka usein evcc lukee mittaritietoja ja säätää lataustehoa. Oletus 30 s on turvallinen asetus. Ajoneuvot, latauslaitteet ja invertterit tyypillisesti tarvitsevat useita sekunteja toimintansa säätämiseen. Jos laitteesi reagoivat nopeasti, voit määrittää lyhyemmän aikajakson. Suosittelemme voimakkaasti, että alle 10 s jaksoa ei määritettäisi. Jos kohtaat virheellistä toimitaa tai hyppiviä tehoarvoja, suosittelemme pidentämään aikaväliä.",
+      "descriptionInterval": "Päivitysjakso sekunneissa. Määrittää, kuinka usein evcc lukee mittaritietoja ja säätää lataustehoa. Oletus 30 s on turvallinen asetus. Ajoneuvot, latauslaitteet ja invertterit tyypillisesti tarvitsevat useita sekunteja toimintansa säätämiseen. Jos laitteesi reagoivat nopeasti, voit määrittää lyhyemmän aikajakson. Suosittelemme vahvasti, että alle 10 s jaksoa ei määritettäisi. Jos kohtaat virheellistä toimitaa tai hyppiviä tehoarvoja, suosittelemme pidentämään aikaväliä.",
       "descriptionResidualPower": "Siirtää ohjaussilmukan toimintapistettä. Mikäli sinulla on kotiakku on suositeltavaa asettaa ohjausarvo 100 W:iin. Tämä antaa akulle pienen etusijan suhteessa sähköverkon käyttöön.",
       "labelInterval": "Päivitystiheys",
       "labelResidualPower": "Jäännösteho",
@@ -108,7 +108,7 @@
     "deviceValue": {
       "amount": "Määrä",
       "broker": "Välittäjä (Broker)",
-      "bucket": "Bucket",
+      "bucket": "Tietosäiliö (Bucket)",
       "capacity": "Kapasiteetti",
       "chargeStatus": "Tila",
       "chargeStatusA": "ei yhdistetty",
@@ -128,12 +128,14 @@
       "dimmed": "Himmennetty",
       "enabled": "Käytössä",
       "energy": "Energia",
+      "events": "Tapahtumat",
       "feedinPrice": "Sähköverkkoon myynninhinta",
       "gridPrice": "Verkosta ostonhinta",
       "heaterTempLimit": "Lämmityksen raja",
       "hemsActiveLimit": "Aktiivinen raja",
       "hemsType": "Kommunikaatiomenetelmä",
       "identifier": "RFID-tunniste",
+      "messengers": "Palvelut",
       "no": "ei",
       "odometer": "Matkamittari",
       "org": "Organisaatio",
@@ -172,11 +174,27 @@
       "loading": "Ladataan YAML-tiedostoeditoria…"
     },
     "eebus": {
-      "description": "Konfiguraatio, jonka avulla evcc voi kommunikoida muiden EEBus-laitteiden kanssa.",
+      "certificate": {
+        "private": "Yksityinen avain",
+        "public": "Julkinen sertifikaatti",
+        "title": "Sertifikaatit"
+      },
+      "description": "Konfiguraatio, jonka avulla evcc voi kommunikoida muiden EEBus-yhteensopivien laitteiden kanssa, kuten laturit tai sähköverkko-operaattorin hallintalaitteet. Kaikki tarvittavat yhteydenmuodostukset ja yhteyssertifikaatin luonti tehdään automaattisesti ensimmäisessä käynnistyksessä.",
+      "descriptionAdvanced": "Muutoksia ei tarvita. Tee muutoksia näihin asetuksiin vain jos todella tiedät mitä olet tekemässä. Jos muutat SHIP-ID:tä tai sertifikaatteja sinun tulee parittaa laitteesi uudelleen.",
+      "interfaces": "Verkkoyhteydet",
+      "interfacesHelp": "Rajaa verkkoyhteyksiä, joita EEBus voi käyttää, jotta vältytään kommunikointiongelmilta. Jätä tyhjäksi käyttääksesi kaikki verkkoyhteyksiä. Yksi laite per rivi.",
+      "port": "Portti",
+      "portHelp": "Käytettävä porttinumero.",
+      "removeConfirm": "Kaikki EEBus-asetukset poistetaan. Uudet sertifikaatit ja tunnisteet generoidaan seuraavan järjetestelmän käynnistyksessä. Oletko varma?",
+      "shipid": "SHIP-ID",
+      "shipidExplain": "Pysyvä laitteen tunnistetieto EEBus-yhteydessä laitteen yksilöimiseksi.",
+      "shipidHelp": "Alla olevat sertifikaatit ovat yhdistetty tähän SHIP-ID:seen.",
+      "ski": "SKI",
+      "skiExplain": "Yksilöllinen turvatunniste EEBus-laitteiden parittamiseksi.",
       "title": "EEBus"
     },
     "experimental": {
-      "description": "Kytke päälle käyttöliittymän toiminnallisuudet, joita vielä testataan ja jotka voivat muuttua tulevissa päivityksissä.",
+      "description": "Sallii varhaisen tutustumisen toiminnallisuuksiin, joita vielä testataan ja jotka voivat muuttua tulevissa päivityksissä. Nämä ominaisuudet voivat olla epävakaita, ne voivat muuttua tai poistua tulevissa päivityksissä.",
       "title": "Kokeellinen"
     },
     "ext": {
@@ -198,6 +216,7 @@
       "cancel": "Peruuta",
       "clear": "Tyhjennä",
       "close": "Sulje",
+      "confirmSave": "Asetuksien muutoksia on tallentamatta. Tallennetaanko nyt heti?",
       "copied": "Kopioitu!",
       "copy": "Kopioi",
       "customHelp": "Luo itsemääritelty laite käyttäen EVCC:n lisäosaa.",
@@ -207,11 +226,13 @@
       "dragHandle": "Kahva",
       "dragItem": "Raahattavissa: {title}",
       "dragList": "Järjestettävä lista",
+      "error": "Virhe",
       "experimental": "Kokeellinen",
       "forceSave": "Tallenna joka tapauksessa",
       "fromYamlHint": "Huomio: Asetus on evcc.yaml-tiedostosta. Poista asetus tiedostosta, jotta voisit muokata sitä täällä.",
       "hideAdvancedSettings": "Piilota edistyneet asetukset",
       "invalidFileSelected": "Valittu virheellinen tiedosto",
+      "legacy": "perinteinen",
       "noFileSelected": "Ei valittua tiedostoa.",
       "off": "pois",
       "on": "päällä",
@@ -393,8 +414,65 @@
       "welcomeBannerTitle": "Määritetään järjestelmäsi!"
     },
     "messaging": {
+      "addMessenger": "Lisää palvelu",
       "description": "Vastaanota viestejä koskien lataustapahtumiasi.",
+      "event": {
+        "asleep": {
+          "messageDefault": "Lataus odotustilassa, ajoneuvoa {vehicleName} ei ladata juuri.",
+          "title": "Odotettaessa ajoneuvoa",
+          "titleDefault": "Ajoneuvo nukuksissa"
+        },
+        "connect": {
+          "messageDefault": "Auto yhdistettynä aurinko-{pvPower}kW",
+          "title": "Kun auto yhdistetään",
+          "titleDefault": "Auto yhdistettynä"
+        },
+        "disconnect": {
+          "messageDefault": "Auto irroitettu {connectedDuration} jälkeen",
+          "title": "Autoa irroitettaessa",
+          "titleDefault": "Auto irroitettu"
+        },
+        "guest": {
+          "messageDefault": "Tuntematon ajoneuvo, vieras yhdistettynä?",
+          "title": "Tuntemattoman ajoneuvon kytkettäessä",
+          "titleDefault": "Tuntematon ajoneuvo"
+        },
+        "planoverrun": {
+          "messageDefault": "{vehicleTitle}: Suunnitelma tulee menemään pitkäksi.",
+          "title": "Lataussuunnitelman mennessä ylipitkäksi",
+          "titleDefault": "Ylipitkä suunnitelma"
+        },
+        "soc": {
+          "messageDefault": "Akku ladattu {vehicleSoc}%",
+          "title": "Lataustason päivitys",
+          "titleDefault": "Lataustaso päivitetty"
+        },
+        "start": {
+          "messageDefault": "Aloitettu lataus {mode} tilassa.",
+          "title": "Latausta aloitettaessa",
+          "titleDefault": "Lataus aloitettu"
+        },
+        "stop": {
+          "messageDefault": "Lataus päättynyt {chargedEnergy}kWh ajassa {chargeDuration}.",
+          "title": "Latauksen päättyessä",
+          "titleDefault": "Lataus päättynyt"
+        }
+      },
+      "eventMessage": "Viesti",
+      "eventTitle": "Otsikko",
+      "events": "Tapahtumat",
+      "legacyWarning": "Uusi ilmoitusasetus saatavilla! Poista ja tallenna uudet asetuksesi ohjatusti täällä.",
+      "messengers": "Palvelut",
+      "seePlaceholders": "katso tilapäiset",
       "title": "Ilmoitukset"
+    },
+    "messenger": {
+      "custom": "Itsemääritelty palvelu",
+      "generic": "Yleinen palvelu",
+      "primary": "Erityispalvelu",
+      "template": "Palvelu",
+      "titleAdd": "Lisää palvelu",
+      "titleEdit": "Muokkaa palvelua"
     },
     "meter": {
       "cancel": "Peruuta",
@@ -544,6 +622,7 @@
       "integrations": "Integraatiot",
       "loadpoints": "Lataus- ja lämmityspisteet",
       "meter": "Aurinko & Akku",
+      "services": "Palvelut",
       "system": "Järjestelmä",
       "vehicles": "Ajoneuvot"
     },
@@ -633,7 +712,7 @@
     "validation": {
       "failed": "epäonnistui",
       "label": "Tila",
-      "running": "Vahvistetaan…",
+      "running": "vahvistetaan…",
       "success": "onnistui",
       "unknown": "tuntematon",
       "validate": "vahvista"
@@ -740,12 +819,14 @@
   "forecast": {
     "co2": {
       "average": "Keskimäärin",
+      "constant": "CO₂-kerroin",
       "lowestHour": "Puhtain tunti",
       "range": "Toimintamatka"
     },
     "modalTitle": "Ennuste",
     "price": {
       "average": "Keskimääräinen",
+      "constant": "Hinta",
       "lowestHour": "Edullisin tunti",
       "range": "Toimintamatka"
     },
@@ -951,6 +1032,7 @@
       "charged": "Ladattu",
       "co2": "⌀ CO₂",
       "duration": "Kesto",
+      "emission": "Päästöt",
       "fallbackName": "Latauspiste",
       "finished": "Valmistumisaika",
       "power": "Teho",
@@ -962,10 +1044,15 @@
     },
     "loadpointSettings": {
       "batteryBoost": {
-        "description": "Nopea lataus kodin akusta.",
+        "description": "Nopea lataus kodin akusta, kunnes se purkautuu tasolle {limit}.",
+        "descriptionDisabled": "Valitse raja mahdollistaaksesi välittömän latauksen kotiakusta.",
+        "disabled": "Ei päällä",
         "label": "Akun tehostaminen",
         "mode": "Saatavilla vain aurinkosähkö(pv)- ja min + pv-tilassa.",
-        "once": "Tehostus on aktiivinen tälle latausistunnolle."
+        "once": "Tehostus on aktiivinen tälle latausistunnolle.",
+        "stateActive": "Akkutehostus päällä",
+        "stateBelowLimit": "Akun varaus liian alhainen tehostukseen",
+        "stateReady": "Akkutehostus valmiina"
       },
       "batteryUsage": "Kodin akku",
       "currents": "Latausvirta",
@@ -1071,6 +1158,9 @@
     "vehicleStatus": {
       "awaitingAuthorization": "Odotetaan valtuutusta.",
       "batteryBoost": "Akun tehostus aktiivinen.",
+      "batteryBoostBelowLimit": "Akun varaus liian alhainen tehostukseen.",
+      "batteryBoostDisabled": "Akkutehostus ei päällä.",
+      "batteryBoostEnabled": "Tehostus kunnes akku {limit}.",
       "charging": "Lataa…",
       "cheapEnergyCharging": "Edullista energiaa saatavilla.",
       "cheapEnergyNextStart": "Energia on edullista {duration} ajan.",
@@ -1230,7 +1320,7 @@
     },
     "hiddenFeatures": {
       "label": "Kokeellinen",
-      "value": "Näytä kokeelliset ominaisuudet."
+      "value": "Salli kokeelliset ominaisuudet."
     },
     "language": {
       "auto": "Automaattinen",
