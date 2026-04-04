@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -33,6 +34,22 @@ var (
 	updated time.Time
 	mu      atomic.Uint32
 )
+
+// optimizerResult wraps the optimizer publish payload to implement BytesMarshaler.
+// This ensures publishComplex serializes it as a single JSON message instead of
+// recursively decomposing each struct field and array element into individual MQTT
+// topics (~1,500 messages per optimizer run).
+type optimizerResult struct {
+	Req     optimizer.OptimizationInput  `json:"req"`
+	Res     optimizer.OptimizationResult `json:"res"`
+	Details requestDetails               `json:"details"`
+}
+
+var _ api.BytesMarshaler = (*optimizerResult)(nil)
+
+func (r optimizerResult) MarshalBytes() ([]byte, error) {
+	return json.Marshal(r)
+}
 
 type batteryType string
 
@@ -239,11 +256,11 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 		return apiError(resp)
 	}
 
-	site.publish("evopt", struct {
-		Req     optimizer.OptimizationInput  `json:"req"`
-		Res     optimizer.OptimizationResult `json:"res"`
-		Details requestDetails               `json:"details"`
-	}{
+	if resp.JSON200.Status != optimizer.Optimal {
+		return errors.New(string(resp.JSON200.Status))
+	}
+
+	site.publish("evopt", optimizerResult{
 		Req:     req,
 		Res:     *resp.JSON200,
 		Details: details,
@@ -411,25 +428,24 @@ func (site *Site) batteryRequest(dev config.Device[api.Meter], b types.Measureme
 	bat := optimizer.BatteryConfig{
 		CMax:      batteryPower,
 		DMax:      batteryPower,
-		SCapacity: float32(*b.Capacity * 10),          // Wh
+		SCapacity: float32(*b.Capacity * 1e3),         // Wh
 		SInitial:  float32(*b.Capacity * *b.Soc * 10), // Wh
 		// PA:       pa,
 	}
-	bat.SMax = max(bat.SInitial, float32(*b.Capacity*1e3)) // Wh
 
 	instance := dev.Instance()
 
-	if _, ok := instance.(api.BatteryController); ok {
+	if api.HasCap[api.BatteryController](instance) {
 		bat.ChargeFromGrid = true
 	}
 
-	if m, ok := instance.(api.BatteryPowerLimiter); ok {
+	if m, ok := api.Cap[api.BatteryPowerLimiter](instance); ok {
 		charge, discharge := m.GetPowerLimits()
 		bat.CMax = float32(charge)
 		bat.DMax = float32(discharge)
 	}
 
-	if m, ok := instance.(api.BatterySocLimiter); ok {
+	if m, ok := api.Cap[api.BatterySocLimiter](instance); ok {
 		minSoc, maxSoc := m.GetSocLimits()
 		bat.SMin = float32(*b.Capacity * minSoc * 10) // Wh
 		bat.SMax = float32(*b.Capacity * maxSoc * 10) // Wh
@@ -615,7 +631,7 @@ func asTimestamps(dt []int) []time.Time {
 	res := make([]time.Time, 0, len(dt))
 	eoh := endOfHour(time.Now())
 	res = append(res, eoh.Add(-time.Duration(dt[0])*time.Second))
-	for i := range len(res) - 1 {
+	for i := range len(dt) - 1 {
 		res = append(res, eoh.Add(time.Duration(dt[i+1])*time.Second))
 	}
 	return res
