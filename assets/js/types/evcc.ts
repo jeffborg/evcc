@@ -75,6 +75,7 @@ export interface State {
   authProviders?: AuthProviders;
   evopt?: EvOpt;
   version?: string;
+  availableVersion?: string;
   system?: string;
   timezone?: string;
   battery?: Battery;
@@ -93,6 +94,7 @@ export interface State {
   shm?: ShmConfig;
   sponsor?: ConfigStatus<unknown, SponsorStatus>;
   eebus?: ConfigStatus<EebusConfig, EebusStatus>;
+  remote?: Remote;
   modbusproxy?: ModbusProxy[];
   messaging?: ConfigStatus<unknown, unknown>;
   messagingEvents?: MessagingEvents;
@@ -112,6 +114,7 @@ export interface State {
   config?: string;
   database?: string;
   ocpp?: Ocpp;
+  optimizer?: boolean;
 }
 
 export interface ConfigStatus<C, S> {
@@ -481,6 +484,29 @@ export enum MODBUS_PROTOCOL {
 export type Certificate = {
   public: string;
   private: string;
+};
+
+export type Remote = ConfigStatus<RemoteConfig, RemoteStatus>;
+
+export type RemoteConfig = {
+  enabled: boolean;
+};
+
+export type RemoteStatus = {
+  connected: boolean;
+  url?: string;
+  loginBlocked: boolean;
+  lastSeen?: Record<string, string>;
+};
+
+export type RemoteClient = {
+  username: string;
+  createdAt: string;
+  expiresAt?: string;
+};
+
+export type RemoteClientCreated = RemoteClient & {
+  password: string;
 };
 
 export type Eebus = ConfigStatus<EebusConfig, EebusStatus>;

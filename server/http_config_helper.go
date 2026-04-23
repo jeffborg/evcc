@@ -18,6 +18,7 @@ import (
 	"github.com/evcc-io/evcc/util/templates"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/samber/lo"
+	"github.com/spf13/cast"
 	"go.yaml.in/yaml/v4"
 )
 
@@ -107,6 +108,7 @@ func templateForConfig(class templates.Class, conf map[string]any) (templates.Te
 	return templates.ByName(class, typ)
 }
 
+// filterValidTemplateParams removes all configuration properties that are not part of the template definition
 func filterValidTemplateParams(tmpl *templates.Template, conf map[string]any) map[string]any {
 	res := make(map[string]any)
 
@@ -167,6 +169,32 @@ func mergeMasked(class templates.Class, conf, old map[string]any) (map[string]an
 		}
 		return v
 	})
+}
+
+// deviceOther looks up a stored device's `Other` config by class and id.
+func deviceOther(class templates.Class, id int) (map[string]any, error) {
+	name := config.NameForID(id)
+	switch class {
+	case templates.Charger:
+		return deviceOtherFromHandler(name, config.Chargers())
+	case templates.Meter:
+		return deviceOtherFromHandler(name, config.Meters())
+	case templates.Vehicle:
+		return deviceOtherFromHandler(name, config.Vehicles())
+	case templates.Tariff:
+		return deviceOtherFromHandler(name, config.Tariffs())
+	case templates.Messenger:
+		return deviceOtherFromHandler(name, config.Messengers())
+	}
+	return nil, errors.New("unsupported class: " + class.String())
+}
+
+func deviceOtherFromHandler[T any](name string, h config.Handler[T]) (map[string]any, error) {
+	dev, err := h.ByName(name)
+	if err != nil {
+		return nil, err
+	}
+	return dev.Config().Other, nil
 }
 
 func startDeviceTimeout() (context.Context, context.CancelFunc, chan struct{}) {
@@ -340,6 +368,11 @@ func testInstance(instance any) map[string]testResult {
 		makeResult("dimmed", val, err)
 	}
 
+	if dev, ok := api.Cap[api.Curtailer](instance); ok {
+		val, err := dev.Curtailed()
+		makeResult("curtailed", val, err)
+	}
+
 	if dev, ok := api.Cap[api.Identifier](instance); ok {
 		val, err := dev.Identify()
 		makeResult("identifier", val, err)
@@ -408,6 +441,7 @@ func (maskedTransformer) Transformer(typ reflect.Type) func(dst, src reflect.Val
 	}
 }
 
+// decodeDeviceConfig extracts device configuration and yaml details plus type override
 func decodeDeviceConfig(r io.Reader) (configReq, error) {
 	var res configReq
 
@@ -431,6 +465,11 @@ func decodeDeviceConfig(r io.Reader) (configReq, error) {
 
 	if err := yaml.Unmarshal([]byte(res.Yaml), &res.Other); err != nil && err != io.EOF {
 		return configReq{}, err
+	}
+
+	if typ := cast.ToString(res.Other["type"]); typ != "" {
+		res.Type = typ
+		delete(res.Other, "type")
 	}
 
 	return res, nil
