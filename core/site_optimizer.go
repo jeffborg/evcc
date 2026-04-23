@@ -27,7 +27,7 @@ import (
 )
 
 var (
-	eta          = float32(0.9)  // efficiency of the battery charging/discharging
+	eta          = float32(0.9)   // efficiency of the battery charging/discharging
 	batteryPower = float32(10000) // default power of the battery in W
 
 	mu               sync.Mutex
