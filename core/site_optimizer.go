@@ -749,30 +749,6 @@ func applySmartCostLimit(lp loadpoint.API, demand []float32, grid api.Rates, min
 	return demand
 }
 
-func (site *Site) applyBatteryGridChargeLimit(cMax float32, grid api.Rates, minLen int) []float32 {
-	limit := site.GetBatteryGridChargeLimit()
-	if limit == nil {
-		return nil
-	}
-
-	maxLen := min(minLen, len(grid))
-
-	if hasAffordableSlots := slices.ContainsFunc(grid[:maxLen], func(r api.Rate) bool {
-		return r.Value <= *limit
-	}); !hasAffordableSlots {
-		return nil
-	}
-
-	demand := make([]float32, minLen)
-	for i := range maxLen {
-		if grid[i].Value <= *limit {
-			demand[i] = float32(float64(cMax) / slotsPerHour)
-		}
-	}
-
-	return demand
-}
-
 // apiError extracts error message from optimizer API response
 func apiError(resp *optimizer.PostOptimizeChargeScheduleResponse) error {
 	var errObj *optimizer.Error
