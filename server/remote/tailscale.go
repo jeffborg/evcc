@@ -43,7 +43,7 @@ func (n *TsNode) Start(stateDir, authKey, hostname string, httpHandler http.Hand
 	}
 
 	if hostname == "" {
-		hostname = "evcc"
+		hostname = defaultHostname
 	}
 
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
