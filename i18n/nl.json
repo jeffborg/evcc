@@ -637,27 +637,14 @@
       "titleEdit": "Meter Zonnepanelen Bewerken"
     },
     "remote": {
-      "active": "Actief",
-      "addClient": "Client toevoegen",
-      "addClientTitle": "Remote client toevoegen",
-      "clientCreated": "Client toegevoegd",
-      "clients": "Clients",
-      "confirmDelete": "Client verwijderen?",
       "connected": "Verbonden",
-      "createClient": "Client aanmaken",
-      "description": "Toegang tot uw evcc installatie via de evcc mobile app. Zonder port-forwarding en zonder VPN.",
-      "deviceName": "Apparaat naam",
+      "description": "Toegang tot uw evcc installatie via uw Tailscale-netwerk (*.ts.net). Zonder port-forwarding of cloud-proxy.",
       "disconnected": "Niet verbonden",
-      "done": "Klaar",
-      "enableLabel": "Toegang op afstand inschakelen",
-      "expirationNone": "Nooit",
-      "expired": "verlopen",
-      "expiresIn": "verloopt {time}",
-      "lastActive": "actief {time}",
-      "loginBlocked": "Inloggen op afstand is voor een minuut geblokkeerd, omdat er te veel mislukte inlogpogingen waren.",
-      "manualLogin": "Of log handmatig in via uw browser op {url}, met de volgende credentials:",
-      "password": "Wachtwoord",
-      "username": "Gebruikersnaam"
+      "enableLabel": "Toegang op afstand via Tailscale inschakelen",
+      "hostname": "Hostnaam",
+      "hostnamePlaceholder": "evcc",
+      "title": "Toegang op Afstand",
+      "url": "Tailscale URL"
     },
     "section": {
       "additionalMeter": "Extra meters",
