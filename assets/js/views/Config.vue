@@ -489,6 +489,7 @@ import MqttIcon from "../components/MaterialIcon/Mqtt.vue";
 import MqttModal from "../components/Config/MqttModal.vue";
 import RemoteAccessIcon from "../components/MaterialIcon/RemoteAccess.vue";
 import RemoteModal from "../components/Config/Remote/RemoteModal.vue";
+import { isRemoteClientActive } from "@/utils/remote";
 import NetworkModal from "../components/Config/NetworkModal.vue";
 import NotificationIcon from "../components/MaterialIcon/Notification.vue";
 import OptimizerIcon from "../components/MaterialIcon/Optimizer.vue";
@@ -790,10 +791,21 @@ export default defineComponent({
 			if (!remote?.status?.url) {
 				return { configured: { value: false } };
 			}
-			return {
+			const tags: DeviceTags = {
 				enabled: { value: remote.config?.enabled },
 				connected: { value: remote.status?.connected },
 			};
+			if (remote.status?.loginBlocked) {
+				tags["loginBlocked"] = { value: true, error: true };
+			}
+			if (remote.status?.connected) {
+				const lastSeen = remote.status?.lastSeen;
+				const count = lastSeen
+					? Object.keys(lastSeen).filter((u) => isRemoteClientActive(lastSeen, u)).length
+					: 0;
+				tags["activeClients"] = { value: count };
+			}
+			return tags;
 		},
 		sponsor() {
 			return store.state?.sponsor;

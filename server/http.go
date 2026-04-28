@@ -306,6 +306,9 @@ func (s *HTTPd) RegisterSystemHandler(site *core.Site, pub publisher, cache *uti
 			routes["remote"] = route{"POST", "/remote/{value:[01truefalse]+}", boolHandler(remoteAccess.Enable, remoteAccess.Enabled)}
 			routes["remoteauthkey"] = route{"POST", "/remote/authkey", updateRemoteAuthKeyHandler(remoteAccess)}
 			routes["remotehostname"] = route{"POST", "/remote/hostname", updateRemoteHostnameHandler(remoteAccess)}
+			routes["remoteclients"] = route{"GET", "/remote/clients", remoteClientsHandler(remoteAccess)}
+			routes["createremoteclient"] = route{"POST", "/remote/clients", createRemoteClientHandler(remoteAccess)}
+			routes["deleteremoteclient"] = route{"DELETE", "/remote/clients", deleteRemoteClientHandler(remoteAccess)}
 		}
 
 		// yaml handlers

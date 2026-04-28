@@ -3,6 +3,7 @@ package remote
 import (
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/evcc-io/evcc/api/globalconfig"
 	"github.com/evcc-io/evcc/cmd/shutdown"
@@ -29,6 +30,8 @@ type Remote struct {
 	httpHandler http.Handler
 	log         *util.Logger
 	publisher   chan<- util.Param
+	lastSeen    map[string]time.Time // persisted: username → last activity
+	connected   map[string]int       // in-memory: active connection count per user
 }
 
 // New creates a new Remote manager, loads persisted settings, and connects if enabled.
@@ -37,10 +40,13 @@ func New(httpHandler http.Handler, valueChan chan<- util.Param) *Remote {
 		httpHandler: httpHandler,
 		log:         util.NewLogger("remote"),
 		publisher:   valueChan,
+		lastSeen:    make(map[string]time.Time),
+		connected:   make(map[string]int),
 	}
 
 	// load saved settings
 	_ = settings.Json(keys.Remote, &r.settings)
+	_ = settings.Json(keys.RemoteLastSeen, &r.lastSeen)
 
 	if r.settings.Enabled {
 		if err := r.start(); err != nil {
@@ -49,6 +55,12 @@ func New(httpHandler http.Handler, valueChan chan<- util.Param) *Remote {
 	}
 
 	shutdown.Register(r.stop)
+
+	go func() {
+		for range time.Tick(time.Minute) {
+			r.publish()
+		}
+	}()
 
 	return r
 }
@@ -117,13 +129,25 @@ func (r *Remote) UpdateHostname(hostname string) error {
 	return nil
 }
 
+// TrackActivity tracks remote client connections and disconnections.
+func (r *Remote) TrackActivity(username string, active bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if active {
+		r.lastSeen[username] = time.Now()
+		r.connected[username]++
+	} else if r.connected[username] > 0 {
+		r.connected[username]--
+	}
+}
+
 func (r *Remote) start() error {
 	r.mu.Lock()
 	authKey := r.settings.AuthKey
 	hostname := r.settings.Hostname
 	r.mu.Unlock()
 
-	node := NewTsNode(r.log, r.publish)
+	node := NewTsNode(r.log, r.Authenticate, r.TrackActivity, r.publish)
 
 	r.mu.Lock()
 	r.node = node
@@ -164,9 +188,11 @@ func (r *Remote) ConfigStatus() globalconfig.ConfigStatus {
 	connected := node != nil && node.IsConnected()
 	url := ""
 	authURL := ""
+	loginBlocked := false
 	if node != nil {
 		url = node.URL()
 		authURL = node.AuthURL()
+		loginBlocked = node.LoginBlocked()
 	}
 
 	return globalconfig.ConfigStatus{
@@ -178,13 +204,17 @@ func (r *Remote) ConfigStatus() globalconfig.ConfigStatus {
 			Hostname: hostname,
 		},
 		Status: struct {
-			Connected bool   `json:"connected"`
-			URL       string `json:"url,omitempty"`
-			AuthURL   string `json:"authUrl,omitempty"`
+			Connected    bool                 `json:"connected"`
+			URL          string               `json:"url,omitempty"`
+			AuthURL      string               `json:"authUrl,omitempty"`
+			LoginBlocked bool                 `json:"loginBlocked"`
+			LastSeen     map[string]time.Time `json:"lastSeen,omitempty"`
 		}{
-			Connected: connected,
-			URL:       url,
-			AuthURL:   authURL,
+			Connected:    connected,
+			URL:          url,
+			AuthURL:      authURL,
+			LoginBlocked: loginBlocked,
+			LastSeen:     r.lastSeen,
 		},
 	}
 }
@@ -194,5 +224,17 @@ func (r *Remote) publish() {
 	if r.publisher == nil {
 		return
 	}
+
+	// refresh lastSeen for open connections (auth only fires once)
+	r.mu.Lock()
+	now := time.Now()
+	for user, count := range r.connected {
+		if count > 0 {
+			r.lastSeen[user] = now
+		}
+	}
+	_ = settings.SetJson(keys.RemoteLastSeen, r.lastSeen)
+	r.mu.Unlock()
+
 	r.publisher <- util.Param{Key: keys.Remote, Val: r.ConfigStatus()}
 }

@@ -497,6 +497,18 @@ export type RemoteStatus = {
   connected: boolean;
   url?: string;
   authUrl?: string;
+  loginBlocked: boolean;
+  lastSeen?: Record<string, string>;
+};
+
+export type RemoteClient = {
+  username: string;
+  createdAt: string;
+  expiresAt?: string;
+};
+
+export type RemoteClientCreated = RemoteClient & {
+  password: string;
 };
 
 export type Eebus = ConfigStatus<EebusConfig, EebusStatus>;

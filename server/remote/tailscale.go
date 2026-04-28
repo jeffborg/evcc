@@ -2,10 +2,12 @@ package remote
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/evcc-io/evcc/util"
@@ -21,14 +23,25 @@ type TsNode struct {
 	tailnetURL    string
 	authURL       string
 	log           *util.Logger
+	authenticate  func(username, password string) bool
+	trackActivity func(username string, active bool)
 	onStateChange func()
+	rateLimiter   *authRateLimiter
 }
 
 // NewTsNode creates a new TsNode.
-func NewTsNode(log *util.Logger, onStateChange func()) *TsNode {
+func NewTsNode(
+	log *util.Logger,
+	authenticate func(username, password string) bool,
+	trackActivity func(username string, active bool),
+	onStateChange func(),
+) *TsNode {
 	return &TsNode{
 		log:           log,
+		authenticate:  authenticate,
+		trackActivity: trackActivity,
 		onStateChange: onStateChange,
+		rateLimiter:   newAuthRateLimiter(),
 	}
 }
 
@@ -60,6 +73,9 @@ func (n *TsNode) Start(stateDir, authKey, hostname string, httpHandler http.Hand
 	ctx, cancel := context.WithCancel(context.Background())
 	n.cancel = cancel
 	n.srv = srv
+
+	// Wrap the handler with basic auth.
+	handler := n.basicAuthMiddleware(httpHandler)
 
 	// Start in background; Up() waits until the node is fully online.
 	go func() {
@@ -95,7 +111,7 @@ func (n *TsNode) Start(stateDir, authKey, hostname string, httpHandler http.Hand
 		}
 		defer ln.Close()
 
-		httpSrv := &http.Server{Handler: httpHandler}
+		httpSrv := &http.Server{Handler: handler}
 		if err := httpSrv.Serve(ln); err != nil && ctx.Err() == nil {
 			n.log.ERROR.Printf("tailscale http serve: %v", err)
 		}
@@ -104,6 +120,57 @@ func (n *TsNode) Start(stateDir, authKey, hostname string, httpHandler http.Hand
 	}()
 
 	return nil
+}
+
+// basicAuthMiddleware wraps next with HTTP Basic Auth when any clients are configured.
+// If no clients are configured, requests pass through unauthenticated (so the UI
+// still works out-of-the-box when no users have been added yet).
+func (n *TsNode) basicAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clients := loadClients()
+		if len(clients) == 0 {
+			// No clients configured – allow unrestricted access.
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if !n.rateLimiter.allow() {
+			http.Error(w, "Too many failed login attempts. Try again later.", http.StatusTooManyRequests)
+			return
+		}
+
+		username, password, ok := parseBasicAuth(r)
+		if !ok || !n.authenticate(username, password) {
+			n.rateLimiter.fail()
+			w.Header().Set("WWW-Authenticate", `Basic realm="evcc"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		n.trackActivity(username, true)
+		defer n.trackActivity(username, false)
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// parseBasicAuth extracts the username and password from the Authorization header.
+func parseBasicAuth(r *http.Request) (string, string, bool) {
+	auth := r.Header.Get("Authorization")
+	const prefix = "Basic "
+	if !strings.HasPrefix(auth, prefix) {
+		return "", "", false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(auth[len(prefix):])
+	if err != nil {
+		return "", "", false
+	}
+	pair := string(decoded)
+	idx := strings.IndexByte(pair, ':')
+	if idx < 0 {
+		return "", "", false
+	}
+	return pair[:idx], pair[idx+1:], true
 }
 
 // Close shuts down the embedded Tailscale node.
@@ -144,6 +211,11 @@ func (n *TsNode) AuthURL() string {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.authURL
+}
+
+// LoginBlocked returns true when too many auth failures have been recorded.
+func (n *TsNode) LoginBlocked() bool {
+	return !n.rateLimiter.allow()
 }
 
 // StateDir returns the recommended Tailscale state directory under the evcc home.
