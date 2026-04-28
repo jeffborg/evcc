@@ -146,8 +146,15 @@ func TestRateHorizonSlotsIgnoresMissingPlannerSlots(t *testing.T) {
 }
 
 func TestBatteryRequestDischargeToGrid(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
 	site := &Site{optimizerDischargeToGrid: true}
-	var meter api.Meter = &struct{ api.Meter }{}
+	var meter api.Meter = &struct {
+		api.Meter
+		api.BatteryController
+	}{
+		BatteryController: api.NewMockBatteryController(ctrl),
+	}
 	capacity := 10.0
 	soc := 50.0
 
