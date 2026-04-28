@@ -341,6 +341,27 @@ func (site *Site) SetBatteryDischargeControl(val bool) error {
 	return nil
 }
 
+func (site *Site) GetOptimizerDischargeToGrid() bool {
+	site.RLock()
+	defer site.RUnlock()
+	return site.optimizerDischargeToGrid
+}
+
+func (site *Site) SetOptimizerDischargeToGrid(val bool) error {
+	site.log.DEBUG.Println("set optimizer discharge to grid:", val)
+
+	site.Lock()
+	defer site.Unlock()
+
+	if site.optimizerDischargeToGrid != val {
+		site.optimizerDischargeToGrid = val
+		settings.SetBool(keys.OptimizerDischargeToGrid, val)
+		site.publish(keys.OptimizerDischargeToGrid, val)
+	}
+
+	return nil
+}
+
 func (site *Site) GetBatteryGridChargeLimit() *float64 {
 	site.RLock()
 	defer site.RUnlock()

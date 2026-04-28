@@ -73,11 +73,12 @@ type Site struct {
 	auxMeters     []config.Device[api.Meter] // Auxiliary meters
 
 	// battery settings
-	prioritySoc             float64  // prefer battery up to this Soc
-	bufferSoc               float64  // continue charging on battery above this Soc
-	bufferStartSoc          float64  // start charging on battery above this Soc
-	batteryDischargeControl bool     // prevent battery discharge for fast and planned charging
-	batteryGridChargeLimit  *float64 // grid charging limit
+	prioritySoc              float64  // prefer battery up to this Soc
+	bufferSoc                float64  // continue charging on battery above this Soc
+	bufferStartSoc           float64  // start charging on battery above this Soc
+	batteryDischargeControl  bool     // prevent battery discharge for fast and planned charging
+	optimizerDischargeToGrid bool     // allow optimizer to consider grid export from battery
+	batteryGridChargeLimit   *float64 // grid charging limit
 
 	loadpoints  []*Loadpoint             // Loadpoints
 	tariffs     *tariff.Tariffs          // Tariffs
@@ -307,6 +308,11 @@ func (site *Site) restoreSettings() error {
 	}
 	if v, err := settings.Bool(keys.BatteryDischargeControl); err == nil {
 		if err := site.SetBatteryDischargeControl(v); err != nil && !errors.Is(err, ErrBatteryControlNotAvailable) {
+			return err
+		}
+	}
+	if v, err := settings.Bool(keys.OptimizerDischargeToGrid); err == nil {
+		if err := site.SetOptimizerDischargeToGrid(v); err != nil {
 			return err
 		}
 	}
@@ -1019,6 +1025,7 @@ func (site *Site) prepare() {
 	site.publish(keys.BufferStartSoc, site.bufferStartSoc)
 	site.publish(keys.BatteryMode, site.batteryMode)
 	site.publish(keys.BatteryDischargeControl, site.batteryDischargeControl)
+	site.publish(keys.OptimizerDischargeToGrid, site.optimizerDischargeToGrid)
 	site.publish(keys.ResidualPower, site.GetResidualPower())
 	site.publish(keys.SmartCostAvailable, site.isDynamicTariff(api.TariffUsagePlanner))
 	site.publish(keys.SmartFeedInPriorityAvailable, site.isDynamicTariff(api.TariffUsageFeedIn))

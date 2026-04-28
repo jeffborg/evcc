@@ -75,6 +75,8 @@ type API interface {
 
 	GetBatteryDischargeControl() bool
 	SetBatteryDischargeControl(bool) error
+	GetOptimizerDischargeToGrid() bool
+	SetOptimizerDischargeToGrid(bool) error
 
 	//
 	// battery control external
