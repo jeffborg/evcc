@@ -6,7 +6,9 @@ import (
 
 	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/core/loadpoint"
+	"github.com/evcc-io/evcc/core/types"
 	"github.com/evcc-io/evcc/tariff"
+	"github.com/evcc-io/evcc/util/config"
 	optimizer "github.com/evcc-io/optimizer/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -141,4 +143,18 @@ func TestRateHorizonSlotsIgnoresMissingPlannerSlots(t *testing.T) {
 	}
 
 	assert.Equal(t, 96, rateHorizonSlots(rates))
+}
+
+func TestBatteryRequestDischargeToGrid(t *testing.T) {
+	site := &Site{optimizerDischargeToGrid: true}
+	var meter api.Meter = &struct{ api.Meter }{}
+	capacity := 10.0
+	soc := 50.0
+
+	bat, _ := site.batteryRequest(config.NewStaticDevice(config.Named{Name: "battery1"}, meter), types.Measurement{
+		Soc:      &soc,
+		Capacity: &capacity,
+	})
+
+	assert.True(t, bat.DischargeToGrid)
 }

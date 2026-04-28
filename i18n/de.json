@@ -41,6 +41,7 @@
     "legendTopSubline": "wenn Hausbatterie über {soc} ist.",
     "modalTitle": "Hausbatterie",
     "noBattery": "Keine Batterien konfiguriert.",
+    "optimizerDischargeToGrid": "Optimierer darf ins Netz entladen.",
     "usageTab": "Batterienutzung"
   },
   "config": {
