@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	smallSlotDuration = 3 * time.Minute  // small planner slot duration we might ignore
-	smallGapDuration  = 15 * time.Minute // small gap duration between planner slots we might ignore
+	smallSlotDuration    = 3 * time.Minute  // small planner slot duration we might ignore
+	restartGuardDuration = 30 * time.Second // avoid immediate stop/start flapping around plan transitions
 )
 
 // TODO planActive is not guarded by mutex
@@ -232,8 +232,8 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 		case requiredDuration < smallSlotDuration && requiredDuration > strategy.Precondition:
 			lp.log.DEBUG.Printf("plan: continuing for remaining %v", requiredDuration.Round(time.Second))
 			return true
-		case lp.clock.Until(planStart) < smallGapDuration:
-			lp.log.DEBUG.Printf("plan: avoid re-start within %v, continuing for remaining %v", smallGapDuration, lp.clock.Until(planStart).Round(time.Second))
+		case !planStart.IsZero() && lp.clock.Until(planStart) < restartGuardDuration:
+			lp.log.DEBUG.Printf("plan: avoid re-start within %v, continuing for remaining %v", restartGuardDuration, lp.clock.Until(planStart).Round(time.Second))
 			return true
 		case strategy.Continuous && requiredDuration > strategy.Precondition:
 			lp.log.DEBUG.Printf("plan: ignoring restart at %s for continuous charging", planStart.Round(time.Second).Local())
