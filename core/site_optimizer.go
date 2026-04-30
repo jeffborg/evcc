@@ -82,12 +82,20 @@ type requestDetails struct {
 const slotsPerHour = float64(time.Hour / tariff.SlotDuration)
 
 func (site *Site) optimizerUpdateAsync() {
+	site.optimizerUpdateAsyncWithForce(false)
+}
+
+func shouldSkipOptimizerUpdate(force bool, updated, now time.Time) bool {
+	return !force && now.Sub(updated) < 2*time.Minute
+}
+
+func (site *Site) optimizerUpdateAsyncWithForce(force bool) {
 	if !mu.TryLock() {
 		return
 	}
 	defer mu.Unlock()
 
-	if time.Since(optimizerUpdated) < 2*time.Minute {
+	if shouldSkipOptimizerUpdate(force, optimizerUpdated, time.Now()) {
 		return
 	}
 
