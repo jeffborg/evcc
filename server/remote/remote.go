@@ -1,7 +1,6 @@
 package remote
 
 import (
-	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -11,24 +10,23 @@ import (
 	"github.com/evcc-io/evcc/core/keys"
 	"github.com/evcc-io/evcc/server/db/settings"
 	"github.com/evcc-io/evcc/util"
-	"github.com/evcc-io/evcc/util/request"
-	"github.com/evcc-io/evcc/util/sponsor"
 )
+
+// defaultHostname is the Tailscale hostname used when none is configured.
+const defaultHostname = "evcc"
 
 // Settings is the persisted remote access configuration.
 type Settings struct {
-	Enabled   bool   `json:"enabled"`
-	URL       string `json:"url,omitempty"`
-	Token     string `json:"token,omitempty"`
-	TunnelURL string `json:"tunnelUrl,omitempty"`
+	Enabled  bool   `json:"enabled"`
+	AuthKey  string `json:"authKey,omitempty"`
+	Hostname string `json:"hostname,omitempty"`
 }
 
-// Remote manages the remote access tunnel lifecycle.
+// Remote manages the Tailscale-based remote access lifecycle.
 type Remote struct {
 	mu          sync.Mutex
-	cloudHost   string
 	settings    Settings
-	tunnel      *Tunnel
+	node        *TsNode
 	httpHandler http.Handler
 	log         *util.Logger
 	publisher   chan<- util.Param
@@ -37,9 +35,8 @@ type Remote struct {
 }
 
 // New creates a new Remote manager, loads persisted settings, and connects if enabled.
-func New(cloudHost string, httpHandler http.Handler, valueChan chan<- util.Param) *Remote {
+func New(httpHandler http.Handler, valueChan chan<- util.Param) *Remote {
 	r := &Remote{
-		cloudHost:   cloudHost,
 		httpHandler: httpHandler,
 		log:         util.NewLogger("remote"),
 		publisher:   valueChan,
@@ -51,11 +48,13 @@ func New(cloudHost string, httpHandler http.Handler, valueChan chan<- util.Param
 	_ = settings.Json(keys.Remote, &r.settings)
 	_ = settings.Json(keys.RemoteLastSeen, &r.lastSeen)
 
-	if r.settings.Enabled && r.settings.Token != "" {
-		go r.connect()
+	if r.settings.Enabled {
+		if err := r.start(); err != nil {
+			r.log.ERROR.Printf("remote access: %v", err)
+		}
 	}
 
-	shutdown.Register(r.disconnect)
+	shutdown.Register(r.stop)
 
 	go func() {
 		for range time.Tick(time.Minute) {
@@ -66,8 +65,7 @@ func New(cloudHost string, httpHandler http.Handler, valueChan chan<- util.Param
 	return r
 }
 
-// Enable enables or disables remote access. When enabling for the first time,
-// it registers with the cloud to obtain a URL and token.
+// Enable enables or disables remote access.
 func (r *Remote) Enable(enable bool) error {
 	r.mu.Lock()
 	r.settings.Enabled = enable
@@ -75,10 +73,11 @@ func (r *Remote) Enable(enable bool) error {
 	r.mu.Unlock()
 
 	if enable {
-		// TODO why do we need a go routine for this?
-		go r.connect()
+		if err := r.start(); err != nil {
+			return err
+		}
 	} else {
-		r.disconnect()
+		r.stop()
 	}
 
 	r.publish()
@@ -92,71 +91,41 @@ func (r *Remote) Enabled() bool {
 	return r.settings.Enabled
 }
 
-func (r *Remote) connect() {
+// UpdateAuthKey updates the Tailscale auth key and restarts the node if active.
+func (r *Remote) UpdateAuthKey(authKey string) error {
 	r.mu.Lock()
-	token := r.settings.Token
-	r.mu.Unlock()
-
-	if token == "" {
-		if err := r.register(); err != nil {
-			r.log.ERROR.Printf("registration failed: %v", err)
-			return
-		}
-	}
-
-	r.log.INFO.Printf("remote access via %s", r.settings.URL)
-
-	tunnel := NewTunnel(r.settings.TunnelURL, r.settings.Token, r.httpHandler, r.Authenticate, r.TrackActivity, r.log, r.publish)
-
-	r.mu.Lock()
-	r.tunnel = tunnel
-	r.mu.Unlock()
-
-	// blocks until disconnected
-	tunnel.run()
-}
-
-func (r *Remote) disconnect() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.tunnel != nil {
-		r.tunnel.Close()
-		r.tunnel = nil
-	}
-}
-
-type registerRequest struct {
-	SponsorToken string `json:"sponsorToken"`
-}
-
-type registerResponse struct {
-	URL       string `json:"url"`
-	Token     string `json:"token"`
-	TunnelURL string `json:"tunnelUrl"`
-}
-
-// register calls the cloud registration endpoint and persists the result.
-func (r *Remote) register() error {
-	uri := fmt.Sprintf("https://%s/api/register", r.cloudHost)
-	data := registerRequest{SponsorToken: sponsor.Token}
-	req, _ := request.New(http.MethodPost, uri, request.MarshalJSON(data), request.JSONEncoding)
-
-	var res registerResponse
-
-	client := request.NewHelper(r.log)
-	if err := client.DoJSON(req, &res); err != nil {
-		return err
-	}
-
-	r.mu.Lock()
-	r.settings.URL = res.URL
-	r.settings.Token = res.Token
-	r.settings.TunnelURL = res.TunnelURL
+	wasEnabled := r.settings.Enabled
+	r.settings.AuthKey = authKey
 	r.saveSettings()
 	r.mu.Unlock()
 
-	r.log.INFO.Printf("registered as %s", res.URL)
+	if wasEnabled {
+		r.stop()
+		if err := r.start(); err != nil {
+			return err
+		}
+	}
+
+	r.publish()
+	return nil
+}
+
+// UpdateHostname updates the Tailscale hostname and restarts the node if active.
+func (r *Remote) UpdateHostname(hostname string) error {
+	r.mu.Lock()
+	wasEnabled := r.settings.Enabled
+	r.settings.Hostname = hostname
+	r.saveSettings()
+	r.mu.Unlock()
+
+	if wasEnabled {
+		r.stop()
+		if err := r.start(); err != nil {
+			return err
+		}
+	}
+
+	r.publish()
 	return nil
 }
 
@@ -172,6 +141,32 @@ func (r *Remote) TrackActivity(username string, active bool) {
 	}
 }
 
+func (r *Remote) start() error {
+	r.mu.Lock()
+	authKey := r.settings.AuthKey
+	hostname := r.settings.Hostname
+	r.mu.Unlock()
+
+	node := NewTsNode(r.log, r.Authenticate, r.TrackActivity, r.publish)
+
+	r.mu.Lock()
+	r.node = node
+	r.mu.Unlock()
+
+	return node.Start(StateDir(), authKey, hostname, r.httpHandler)
+}
+
+func (r *Remote) stop() {
+	r.mu.Lock()
+	node := r.node
+	r.node = nil
+	r.mu.Unlock()
+
+	if node != nil {
+		node.Close()
+	}
+}
+
 // saveSettings persists the current settings. Must be called with mu held.
 func (r *Remote) saveSettings() {
 	if err := settings.SetJson(keys.Remote, r.settings); err != nil {
@@ -182,25 +177,42 @@ func (r *Remote) saveSettings() {
 // ConfigStatus returns the current remote access config and status.
 func (r *Remote) ConfigStatus() globalconfig.ConfigStatus {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	node := r.node
+	enabled := r.settings.Enabled
+	hostname := r.settings.Hostname
+	if hostname == "" {
+		hostname = defaultHostname
+	}
+	r.mu.Unlock()
 
-	connected := r.tunnel != nil && r.tunnel.IsConnected()
-	loginBlocked := r.tunnel != nil && r.tunnel.LoginBlocked()
+	connected := node != nil && node.IsConnected()
+	url := ""
+	authURL := ""
+	loginBlocked := false
+	if node != nil {
+		url = node.URL()
+		authURL = node.AuthURL()
+		loginBlocked = node.LoginBlocked()
+	}
 
 	return globalconfig.ConfigStatus{
 		Config: struct {
-			Enabled bool `json:"enabled"`
+			Enabled  bool   `json:"enabled"`
+			Hostname string `json:"hostname"`
 		}{
-			Enabled: r.settings.Enabled,
+			Enabled:  enabled,
+			Hostname: hostname,
 		},
 		Status: struct {
 			Connected    bool                 `json:"connected"`
 			URL          string               `json:"url,omitempty"`
+			AuthURL      string               `json:"authUrl,omitempty"`
 			LoginBlocked bool                 `json:"loginBlocked"`
 			LastSeen     map[string]time.Time `json:"lastSeen,omitempty"`
 		}{
 			Connected:    connected,
-			URL:          r.settings.URL,
+			URL:          url,
+			AuthURL:      authURL,
 			LoginBlocked: loginBlocked,
 			LastSeen:     r.lastSeen,
 		},

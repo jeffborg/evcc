@@ -491,11 +491,13 @@ export type Remote = ConfigStatus<RemoteConfig, RemoteStatus>;
 
 export type RemoteConfig = {
   enabled: boolean;
+  hostname: string;
 };
 
 export type RemoteStatus = {
   connected: boolean;
   url?: string;
+  authUrl?: string;
   loginBlocked: boolean;
   lastSeen?: Record<string, string>;
 };

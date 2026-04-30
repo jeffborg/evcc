@@ -10,11 +10,11 @@
 			Development preview. Not ready for general use. Use with caution and monitor your system
 			closely. Feedback welcome!
 		</div>
-		<SponsorTokenRequired v-if="!isSponsor" feature class="mt-0" />
 		<ErrorMessage :error="error" />
 
 		<template v-if="view === 'list'">
 			<p>{{ $t("config.remote.description") }}</p>
+
 			<div class="form-check form-switch my-3">
 				<input
 					id="remoteEnabled"
@@ -22,8 +22,7 @@
 					class="form-check-input"
 					type="checkbox"
 					role="switch"
-					:disabled="!isSponsor"
-					@change="change"
+					@change="changeEnabled"
 				/>
 				<div class="form-check-label">
 					<label for="remoteEnabled">{{ $t("config.remote.enableLabel") }}</label>
@@ -38,15 +37,73 @@
 				</div>
 			</div>
 
-			<div v-if="status.url" class="mt-4">
-				<FormRow id="remoteServerUrl" :label="$t('config.remote.url')">
-					<input
-						id="remoteServerUrl"
-						type="text"
-						class="form-control border"
-						:value="status.url"
-						readonly
-					/>
+			<template v-if="config.enabled">
+				<div v-if="status.url" class="mt-4">
+					<FormRow id="remoteTailnetUrl" :label="$t('config.remote.url')">
+						<input
+							id="remoteTailnetUrl"
+							type="text"
+							class="form-control border"
+							:value="status.url"
+							readonly
+						/>
+					</FormRow>
+				</div>
+
+				<div v-if="status.authUrl" class="mt-4">
+					<p class="text-muted small">
+						{{ $t("config.remote.authRequired") }}
+					</p>
+					<a
+						:href="status.authUrl"
+						target="_blank"
+						rel="noopener"
+						class="btn btn-primary btn-sm"
+					>
+						{{ $t("config.remote.authenticateTailscale") }}
+					</a>
+				</div>
+
+				<hr class="my-4" />
+
+				<FormRow id="remoteHostname" :label="$t('config.remote.hostname')">
+					<div class="input-group">
+						<input
+							id="remoteHostname"
+							v-model="hostname"
+							type="text"
+							class="form-control border"
+							:placeholder="$t('config.remote.hostnamePlaceholder')"
+						/>
+						<button
+							type="button"
+							class="btn btn-outline-secondary"
+							@click="saveHostname"
+						>
+							{{ $t("config.general.save") }}
+						</button>
+					</div>
+				</FormRow>
+
+				<FormRow id="remoteAuthKey" :label="$t('config.remote.authKey')">
+					<div class="input-group">
+						<input
+							id="remoteAuthKey"
+							v-model="authKey"
+							type="password"
+							class="form-control border"
+							:placeholder="$t('config.remote.authKeyPlaceholder')"
+							autocomplete="off"
+						/>
+						<button
+							type="button"
+							class="btn btn-outline-secondary"
+							@click="saveAuthKey"
+						>
+							{{ $t("config.general.save") }}
+						</button>
+					</div>
+					<div class="form-text">{{ $t("config.remote.authKeyHint") }}</div>
 				</FormRow>
 
 				<hr class="my-4" />
@@ -62,7 +119,7 @@
 					@add="view = 'create'"
 					@remove="removeClient"
 				/>
-			</div>
+			</template>
 		</template>
 
 		<RemoteClientCreate
@@ -85,7 +142,6 @@ import { defineComponent } from "vue";
 import GenericModal from "../../Helper/GenericModal.vue";
 import ErrorMessage from "../../Helper/ErrorMessage.vue";
 import FormRow from "../FormRow.vue";
-import SponsorTokenRequired from "../DeviceModal/SponsorTokenRequired.vue";
 import RemoteClientList from "./RemoteClientList.vue";
 import RemoteClientCreate from "./RemoteClientCreate.vue";
 import RemoteClientReveal from "./RemoteClientReveal.vue";
@@ -107,14 +163,12 @@ export default defineComponent({
 		GenericModal,
 		ErrorMessage,
 		FormRow,
-		SponsorTokenRequired,
 		RemoteClientList,
 		RemoteClientCreate,
 		RemoteClientReveal,
 	},
 	props: {
 		remote: { type: Object as () => Remote | undefined, default: undefined },
-		isSponsor: Boolean,
 	},
 	data() {
 		return {
@@ -122,11 +176,13 @@ export default defineComponent({
 			view: "list" as View,
 			clients: [] as RemoteClient[],
 			createdClient: null as RemoteClientCreated | null,
+			authKey: "",
+			hostname: "",
 		};
 	},
 	computed: {
 		config(): RemoteConfig {
-			return this.remote?.config ?? { enabled: false };
+			return this.remote?.config ?? { enabled: false, hostname: "evcc" };
 		},
 		status(): RemoteStatus {
 			return this.remote?.status ?? { connected: false, loginBlocked: false };
@@ -140,6 +196,14 @@ export default defineComponent({
 				default:
 					return `${this.$t("config.remote.title")} 🧪`;
 			}
+		},
+	},
+	watch: {
+		"config.hostname": {
+			immediate: true,
+			handler(val: string) {
+				this.hostname = val || "evcc";
+			},
 		},
 	},
 	methods: {
@@ -161,7 +225,7 @@ export default defineComponent({
 				this.handleError(err);
 			}
 		},
-		async change(e: Event) {
+		async changeEnabled(e: Event) {
 			const target = e.target as HTMLInputElement;
 			const checked = target.checked;
 			try {
@@ -172,6 +236,23 @@ export default defineComponent({
 				}
 			} catch (err) {
 				target.checked = !checked;
+				this.handleError(err);
+			}
+		},
+		async saveAuthKey() {
+			try {
+				this.error = null;
+				await api.post("config/remote/authkey", { authKey: this.authKey });
+				this.authKey = "";
+			} catch (err) {
+				this.handleError(err);
+			}
+		},
+		async saveHostname() {
+			try {
+				this.error = null;
+				await api.post("config/remote/hostname", { hostname: this.hostname });
+			} catch (err) {
 				this.handleError(err);
 			}
 		},

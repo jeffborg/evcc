@@ -2,6 +2,7 @@ package remote
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -11,7 +12,6 @@ import (
 	"github.com/evcc-io/evcc/core/keys"
 	"github.com/evcc-io/evcc/server/db/settings"
 	"github.com/samber/lo"
-	"github.com/sethvargo/go-password/password"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -32,7 +32,7 @@ func init() {
 	dummyHash = h
 }
 
-// Client is a single tunnel basic-auth credential used by a remote client.
+// Client is a single basic-auth credential used by a remote client.
 type Client struct {
 	Username  string     `json:"username"`
 	CreatedAt time.Time  `json:"createdAt"`
@@ -56,10 +56,13 @@ func saveClients(list []persistedClient) error {
 	return settings.SetJson(keys.RemoteClients, list)
 }
 
-// generatePassword returns a crypto-random alphanumeric password
-// with 20 characters including 4 digits (~96 bits of entropy).
+// generatePassword returns a crypto-random alphanumeric-ish password (20 hex chars ≈ 80 bits of entropy).
 func generatePassword() (string, error) {
-	return password.Generate(20, 4, 0, false, false)
+	buf := make([]byte, 10)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
 }
 
 // Clients returns the list of configured clients (without password hashes).
@@ -78,15 +81,16 @@ func (r *Remote) CreateClient(username string, expiresIn time.Duration) (Client,
 		return Client{}, "", errors.New("username required")
 	}
 	// RFC 7617: ":" is the basic-auth separator; reject control chars too.
-	for _, r := range username {
-		if r == ':' || r < 0x20 || r == 0x7f {
+	for _, ru := range username {
+		if ru == ':' || ru < 0x20 || ru == 0x7f {
 			return Client{}, "", errors.New("username contains invalid characters")
 		}
 	}
 
 	var expires *time.Time
 	if expiresIn > 0 {
-		expires = new(time.Now().Add(expiresIn))
+		t := time.Now().Add(expiresIn)
+		expires = &t
 	}
 
 	r.mu.Lock()
