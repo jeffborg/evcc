@@ -350,13 +350,19 @@ func (site *Site) GetOptimizerDischargeToGrid() bool {
 func (site *Site) SetOptimizerDischargeToGrid(val bool) error {
 	site.log.DEBUG.Println("set optimizer discharge to grid:", val)
 
-	site.Lock()
-	defer site.Unlock()
+	var changed bool
 
+	site.Lock()
 	if site.optimizerDischargeToGrid != val {
 		site.optimizerDischargeToGrid = val
 		settings.SetBool(keys.OptimizerDischargeToGrid, val)
 		site.publish(keys.OptimizerDischargeToGrid, val)
+		changed = true
+	}
+	site.Unlock()
+
+	if changed && sponsor.IsAuthorized() && optimizerEnabled() {
+		go site.optimizerUpdateAsyncWithForce(true)
 	}
 
 	return nil
