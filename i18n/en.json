@@ -41,6 +41,7 @@
     "legendTopSubline": "when home battery is above {soc}.",
     "modalTitle": "Home Battery",
     "noBattery": "No batteries configured.",
+    "optimizerDischargeToGrid": "Allow optimizer to discharge to grid.",
     "usageTab": "Battery usage"
   },
   "config": {
