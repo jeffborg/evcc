@@ -230,7 +230,16 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 			continue
 		}
 
-		add(site.batteryRequest(dev, b))
+		bat, detail := site.batteryRequest(dev, b)
+
+		// tariff forecast-based grid charging demand
+		if bat.ChargeFromGrid {
+			if demand := site.applyBatteryGridChargeLimit(bat.CMax, grid, minLen); demand != nil {
+				bat.PDemand = prorate(demand, firstSlotDuration)
+			}
+		}
+
+		add(bat, detail)
 	}
 
 	// empty request- all loadpoints disabled
