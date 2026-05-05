@@ -85,7 +85,7 @@ func NewConfigurableFromConfig(ctx context.Context, other map[string]any) (api.M
 			return nil, fmt.Errorf("battery limit soc: %w", err)
 		}
 
-		batModeS = socLimitController(minSocG, maxSocG, socG, limitSocS)
+		batModeS = limitController(minSocG, maxSocG, socG, limitSocS)
 
 	case cc.BatteryMode != nil:
 		modeS, err := cc.BatteryMode.IntSetter(ctx, "batteryMode")
@@ -146,42 +146,6 @@ func floatOrPluginGetter(ctx context.Context, val any, def float64) (func() (flo
 		return cfg.FloatGetter(ctx)
 	default:
 		return nil, fmt.Errorf("unsupported type %T, expected number or plugin config", val)
-	}
-}
-
-// socLimitController returns a battery mode setter that dynamically retrieves soc limits on each
-// invocation using getter functions rather than static values, enabling plugin-based soc limits.
-func socLimitController(minSocG, maxSocG func() (float64, error), socG func() (float64, error), limitSocS func(float64) error) func(api.BatteryMode) error {
-	return func(mode api.BatteryMode) error {
-		switch mode {
-		case api.BatteryNormal:
-			minSoc, err := minSocG()
-			if err != nil {
-				return err
-			}
-			return limitSocS(minSoc)
-
-		case api.BatteryHold:
-			soc, err := socG()
-			if err != nil {
-				return err
-			}
-			minSoc, err := minSocG()
-			if err != nil {
-				return err
-			}
-			return limitSocS(min(100, max(soc, minSoc)))
-
-		case api.BatteryCharge:
-			maxSoc, err := maxSocG()
-			if err != nil {
-				return err
-			}
-			return limitSocS(maxSoc)
-
-		default:
-			return api.ErrNotAvailable
-		}
 	}
 }
 
