@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	smallSlotDuration    = 3 * time.Minute  // small planner slot duration we might ignore
+	smallSlotDuration    = 4 * time.Minute  // small planner slot duration we might ignore
 	restartGuardDuration = 30 * time.Second // avoid immediate stop/start flapping around plan transitions
 )
 
