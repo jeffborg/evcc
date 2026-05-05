@@ -7,6 +7,7 @@ import (
 	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/core/loadpoint"
 	"github.com/evcc-io/evcc/core/types"
+	"github.com/evcc-io/evcc/tariff"
 	"github.com/evcc-io/evcc/util/config"
 	optimizer "github.com/evcc-io/optimizer/client"
 	"github.com/stretchr/testify/assert"
@@ -113,6 +114,37 @@ func TestBatteryForecastTotals(t *testing.T) {
 	}
 }
 
+func TestFillMissingRateSlots(t *testing.T) {
+	now := time.Now().Truncate(tariff.SlotDuration)
+
+	rates := api.Rates{
+		{Start: now, End: now.Add(tariff.SlotDuration), Value: 1},
+		{Start: now.Add(2 * tariff.SlotDuration), End: now.Add(3 * tariff.SlotDuration), Value: 3},
+	}
+
+	got := fillMissingRateSlots(rates, 4, plannerRateFallback)
+
+	require.Len(t, got, 4)
+	assert.Equal(t, []float64{1, plannerRateFallback, 3, plannerRateFallback}, []float64{
+		got[0].Value,
+		got[1].Value,
+		got[2].Value,
+		got[3].Value,
+	})
+}
+
+func TestRateHorizonSlotsIgnoresMissingPlannerSlots(t *testing.T) {
+	now := time.Now().Truncate(tariff.SlotDuration)
+
+	rates := api.Rates{
+		{Start: now, End: now.Add(tariff.SlotDuration), Value: 1},
+		{Start: now.Add(2 * tariff.SlotDuration), End: now.Add(3 * tariff.SlotDuration), Value: 3},
+		{Start: now.Add(95 * tariff.SlotDuration), End: now.Add(96 * tariff.SlotDuration), Value: 96},
+	}
+
+	assert.Equal(t, 96, rateHorizonSlots(rates))
+}
+
 func TestBatteryRequestDischargeToGrid(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
@@ -129,7 +161,7 @@ func TestBatteryRequestDischargeToGrid(t *testing.T) {
 	bat, _ := site.batteryRequest(config.NewStaticDevice(config.Named{Name: "battery1"}, meter), types.Measurement{
 		Soc:      &soc,
 		Capacity: &capacity,
-	}, nil, 0, 0)
+	})
 
 	assert.True(t, bat.DischargeToGrid)
 }
@@ -141,4 +173,3 @@ func TestShouldSkipOptimizerUpdate(t *testing.T) {
 	assert.False(t, shouldSkipOptimizerUpdate(false, now.Add(-3*time.Minute), now))
 	assert.False(t, shouldSkipOptimizerUpdate(true, now.Add(-time.Minute), now))
 }
-
