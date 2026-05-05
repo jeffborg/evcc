@@ -44,6 +44,7 @@
     "legendTopSublineDisabledState": "deaktiviert",
     "modalTitle": "Hausbatterie",
     "noBattery": "Keine Batterien konfiguriert.",
+    "optimizerDischargeToGrid": "Optimierer darf ins Netz entladen.",
     "usageTab": "Batterienutzung"
   },
   "config": {

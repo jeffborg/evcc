@@ -182,19 +182,36 @@
 					</i18n-t>
 				</span>
 			</p>
-			<div v-if="controllable" class="form-check form-switch mt-4">
-				<input
-					id="batteryDischargeControl"
-					:checked="batteryDischargeControl"
-					class="form-check-input"
-					type="checkbox"
-					role="switch"
-					@change="changeDischargeControl"
-				/>
-				<div class="form-check-label">
-					<label for="batteryDischargeControl">
-						{{ $t("batterySettings.discharge") }}
-					</label>
+			<div v-if="controllable" class="d-flex flex-column gap-3 mt-4">
+				<div class="form-check form-switch">
+					<input
+						id="batteryDischargeControl"
+						:checked="batteryDischargeControl"
+						class="form-check-input"
+						type="checkbox"
+						role="switch"
+						@change="changeDischargeControl"
+					/>
+					<div class="form-check-label">
+						<label for="batteryDischargeControl">
+							{{ $t("batterySettings.discharge") }}
+						</label>
+					</div>
+				</div>
+				<div class="form-check form-switch">
+					<input
+						id="optimizerDischargeToGrid"
+						:checked="optimizerDischargeToGrid"
+						class="form-check-input"
+						type="checkbox"
+						role="switch"
+						@change="changeOptimizerDischargeToGrid"
+					/>
+					<div class="form-check-label">
+						<label for="optimizerDischargeToGrid">
+							{{ $t("batterySettings.optimizerDischargeToGrid") }}
+						</label>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -220,6 +237,7 @@ export default defineComponent({
 		prioritySoc: { type: Number, default: 0 },
 		bufferStartSoc: { type: Number, default: 0 },
 		batteryDischargeControl: Boolean,
+		optimizerDischargeToGrid: Boolean,
 		battery: { type: Object as PropType<Battery> },
 	},
 	data() {
@@ -420,6 +438,15 @@ export default defineComponent({
 			try {
 				await api.post(
 					`batterydischargecontrol/${(e.target as HTMLInputElement).checked ? "true" : "false"}`
+				);
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async changeOptimizerDischargeToGrid(e: Event) {
+			try {
+				await api.post(
+					`optimizerdischargetogrid/${(e.target as HTMLInputElement).checked ? "true" : "false"}`
 				);
 			} catch (err) {
 				console.error(err);
