@@ -230,7 +230,16 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 			continue
 		}
 
-		add(site.batteryRequest(dev, b))
+		bat, detail := site.batteryRequest(dev, b)
+
+		// tariff forecast-based grid charging demand
+		if bat.ChargeFromGrid {
+			if demand := site.applyBatteryGridChargeLimit(bat.CMax, grid, minLen); demand != nil {
+				bat.PDemand = prorate(demand, firstSlotDuration)
+			}
+		}
+
+		add(bat, detail)
 	}
 
 	// empty request- all loadpoints disabled
@@ -753,6 +762,30 @@ func applySmartCostLimit(lp loadpoint.API, demand []float32, grid api.Rates, min
 			demand[i] = float32(maxPower / slotsPerHour)
 		}
 		// else: keep existing demand (either 0 or minPower from ModeMinPV)
+	}
+
+	return demand
+}
+
+func (site *Site) applyBatteryGridChargeLimit(cMax float32, grid api.Rates, minLen int) []float32 {
+	limit := site.GetBatteryGridChargeLimit()
+	if limit == nil {
+		return nil
+	}
+
+	maxLen := min(minLen, len(grid))
+
+	if hasAffordableSlots := slices.ContainsFunc(grid[:maxLen], func(r api.Rate) bool {
+		return r.Value <= *limit
+	}); !hasAffordableSlots {
+		return nil
+	}
+
+	demand := make([]float32, minLen)
+	for i := range maxLen {
+		if grid[i].Value <= *limit {
+			demand[i] = float32(float64(cMax) / slotsPerHour)
+		}
 	}
 
 	return demand
