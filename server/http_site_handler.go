@@ -201,13 +201,13 @@ func batteryOptimizerSocGoalHandler(site site.API) http.HandlerFunc {
 
 		// Validate all fields before applying any changes to avoid partial updates
 		if _, err := time.Parse("15:04", req.Time); err != nil {
-			jsonError(w, http.StatusBadRequest, errors.New("battery optimizer soc goal time must use HH:MM format"))
+			jsonError(w, http.StatusBadRequest, errors.New("battery optimizer soc goal time must use 24-hour HH:MM format (e.g. 07:00)"))
 			return
 		}
 
 		if req.Tz != "" {
 			if _, err := time.LoadLocation(req.Tz); err != nil {
-				jsonError(w, http.StatusBadRequest, errors.New("battery optimizer soc goal timezone must be a valid IANA timezone"))
+				jsonError(w, http.StatusBadRequest, errors.New("battery optimizer soc goal timezone must be a valid IANA timezone (e.g. America/New_York, Europe/Berlin)"))
 				return
 			}
 		}
