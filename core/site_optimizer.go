@@ -230,7 +230,7 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 			continue
 		}
 
-		add(site.batteryRequest(dev, b, grid, minLen, firstSlotDuration))
+		add(site.batteryRequest(dev, b, grid, minLen, firstSlotDuration, details.Timestamps))
 	}
 
 	// empty request- all loadpoints disabled
@@ -428,7 +428,7 @@ func (site *Site) loadpointRequest(lp loadpoint.API, minLen int, firstSlotDurati
 	return bat, detail
 }
 
-func (site *Site) batteryRequest(dev config.Device[api.Meter], b types.Measurement, grid api.Rates, minLen int, firstSlotDuration time.Duration) (optimizer.BatteryConfig, batteryDetail) {
+func (site *Site) batteryRequest(dev config.Device[api.Meter], b types.Measurement, grid api.Rates, minLen int, firstSlotDuration time.Duration, timestamps []time.Time) (optimizer.BatteryConfig, batteryDetail) {
 	bat := optimizer.BatteryConfig{
 		CMax:      batteryPower,
 		DMax:      batteryPower,
@@ -469,6 +469,8 @@ func (site *Site) batteryRequest(dev config.Device[api.Meter], b types.Measureme
 			bat.PDemand = prorate(demand, firstSlotDuration)
 		}
 	}
+
+	site.applyBatterySocGoal(&bat, *b.Capacity, timestamps)
 
 	return bat, detail
 }
@@ -731,6 +733,90 @@ func (site *Site) applyPlanGoal(lp loadpoint.API, bat *optimizer.BatteryConfig, 
 	} else {
 		site.log.DEBUG.Printf("plan beyond forecast range or overrun: %.1f at %v slot %d", goal, ts.Round(time.Minute), slot)
 	}
+}
+
+func (site *Site) applyBatterySocGoal(bat *optimizer.BatteryConfig, capacity float64, timestamps []time.Time) {
+	goal := site.GetBatteryOptimizerSocGoal()
+	if goal == nil || len(timestamps) == 0 {
+		return
+	}
+
+	targetTime, err := time.Parse("15:04", site.GetBatteryOptimizerSocGoalTime())
+	if err != nil {
+		site.log.ERROR.Println("optimizer:", err)
+		return
+	}
+
+	goalWh := float32(capacity * *goal * 10)
+
+	if bat.SMin > 0 {
+		goalWh = max(goalWh, bat.SMin)
+	}
+
+	upperLimit := bat.SCapacity
+	if bat.SMax > 0 {
+		upperLimit = bat.SMax
+	}
+	if upperLimit > 0 {
+		goalWh = min(goalWh, upperLimit)
+	}
+
+	if goalWh <= 0 {
+		return
+	}
+
+	loc := time.Local
+	if tz := site.GetBatteryOptimizerSocGoalTimezone(); tz != "" {
+		goalLoc, err := time.LoadLocation(tz)
+		if err != nil {
+			site.log.ERROR.Println("optimizer:", err)
+			return
+		}
+		loc = goalLoc
+	}
+
+	if slots := batterySocGoalSlots(timestamps, loc, targetTime.Hour(), targetTime.Minute(), goalWh); slots != nil {
+		bat.SGoal = slots
+		if bat.SMax == 0 {
+			bat.SMax = upperLimit
+		}
+	}
+}
+
+func batterySocGoalSlots(timestamps []time.Time, loc *time.Location, targetHour, targetMinute int, goal float32) []float32 {
+	if len(timestamps) == 0 {
+		return nil
+	}
+
+	first := timestamps[0].In(loc)
+	target := time.Date(
+		first.Year(),
+		first.Month(),
+		first.Day(),
+		targetHour,
+		targetMinute,
+		0,
+		0,
+		loc,
+	)
+	if target.Before(first) {
+		target = target.AddDate(0, 0, 1)
+	}
+
+	var res []float32
+	for i, ts := range timestamps {
+		if ts.In(loc).Before(target) {
+			continue
+		}
+
+		if res == nil {
+			res = make([]float32, len(timestamps))
+		}
+		res[i] = goal
+		target = target.AddDate(0, 0, 1)
+	}
+
+	return res
 }
 
 // TODO remove once smart cost limit usage becomes obsolete

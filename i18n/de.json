@@ -45,6 +45,12 @@
     "modalTitle": "Hausbatterie",
     "noBattery": "Keine Batterien konfiguriert.",
     "optimizerDischargeToGrid": "Optimierer darf ins Netz entladen.",
+    "optimizerSocGoal": {
+      "enable": "Tägliches Reservenziel für den Optimierer halten.",
+      "hint": "Setzt dem Optimierer zur gewählten lokalen Uhrzeit ein tägliches Hausbatterie-SoC-Ziel.",
+      "soc": "Reservenziel",
+      "time": "Uhrzeit"
+    },
     "usageTab": "Batterienutzung"
   },
   "config": {

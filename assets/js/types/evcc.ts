@@ -106,6 +106,9 @@ export interface State {
   batteryDischargeControl?: boolean;
   optimizerDischargeToGrid?: boolean;
   batteryGridChargeLimit?: number | null;
+  batteryOptimizerSocGoal?: number | null;
+  batteryOptimizerSocGoalTime?: string;
+  batteryOptimizerSocGoalTz?: string;
   smartCostAvailable?: boolean;
   smartCostType?: SMART_COST_TYPE;
   siteTitle?: string;

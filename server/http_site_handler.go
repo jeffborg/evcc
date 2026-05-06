@@ -180,6 +180,65 @@ func updateSmartCostLimit(site site.API, setLimit func(loadpoint.API, *float64))
 	}
 }
 
+func batteryOptimizerSocGoalHandler(site site.API) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Soc  float64 `json:"soc"`
+			Time string  `json:"time"`
+			Tz   string  `json:"tz"`
+		}
+
+		if err := jsonDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		// Validate all fields before applying any changes to avoid partial updates
+		if _, err := time.Parse("15:04", req.Time); err != nil {
+			jsonError(w, http.StatusBadRequest, errors.New("battery optimizer soc goal time must use 24-hour HH:MM format (e.g. 07:00)"))
+			return
+		}
+
+		if req.Tz != "" {
+			if _, err := time.LoadLocation(req.Tz); err != nil {
+				jsonError(w, http.StatusBadRequest, errors.New("battery optimizer soc goal timezone must be a valid IANA timezone (e.g. America/New_York, Europe/Berlin)"))
+				return
+			}
+		}
+
+		if req.Soc <= 0 || req.Soc > 100 {
+			jsonError(w, http.StatusBadRequest, errors.New("battery optimizer soc goal must be greater than 0 and at most 100"))
+			return
+		}
+
+		// Apply all changes now that all fields are validated
+		if err := site.SetBatteryOptimizerSocGoalTime(req.Time); err != nil {
+			jsonError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		if err := site.SetBatteryOptimizerSocGoalTimezone(req.Tz); err != nil {
+			jsonError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		if err := site.SetBatteryOptimizerSocGoal(&req.Soc); err != nil {
+			jsonError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		jsonWrite(w, struct {
+			Soc  float64 `json:"soc"`
+			Time string  `json:"time"`
+			Tz   string  `json:"tz"`
+		}{
+			Soc:  req.Soc,
+			Time: req.Time,
+			Tz:   req.Tz,
+		})
+	}
+}
+
 // updateBatteryMode sets the external battery mode
 func updateBatteryMode(site site.API) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
