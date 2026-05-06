@@ -54,6 +54,12 @@ type API interface {
 	GetBatteryGridChargeLimit() *float64
 	// SetBatteryGridChargeLimit sets the grid charge limit
 	SetBatteryGridChargeLimit(limit *float64) error
+	GetBatteryOptimizerSocGoal() *float64
+	SetBatteryOptimizerSocGoal(*float64) error
+	GetBatteryOptimizerSocGoalTime() string
+	SetBatteryOptimizerSocGoalTime(string) error
+	GetBatteryOptimizerSocGoalTimezone() string
+	SetBatteryOptimizerSocGoalTimezone(string) error
 
 	//
 	// power and energy

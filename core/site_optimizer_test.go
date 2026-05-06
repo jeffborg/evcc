@@ -161,9 +161,80 @@ func TestBatteryRequestDischargeToGrid(t *testing.T) {
 	bat, _ := site.batteryRequest(config.NewStaticDevice(config.Named{Name: "battery1"}, meter), types.Measurement{
 		Soc:      &soc,
 		Capacity: &capacity,
-	})
+	}, nil, 0, 0, nil)
 
 	assert.True(t, bat.DischargeToGrid)
+}
+
+func TestBatterySocGoalSlots(t *testing.T) {
+	loc := time.UTC
+
+	timestamps := []time.Time{
+		time.Date(2025, 1, 1, 20, 30, 0, 0, loc),
+		time.Date(2025, 1, 1, 20, 45, 0, 0, loc),
+		time.Date(2025, 1, 1, 21, 0, 0, 0, loc),
+		time.Date(2025, 1, 1, 21, 15, 0, 0, loc),
+		time.Date(2025, 1, 2, 20, 45, 0, 0, loc),
+		time.Date(2025, 1, 2, 21, 0, 0, 0, loc),
+	}
+
+	assert.Equal(t, []float32{0, 0, 2000, 0, 0, 2000}, batterySocGoalSlots(timestamps, loc, 21, 0, 2000))
+}
+
+func TestBatterySocGoalSlotsRollsToNextDay(t *testing.T) {
+	loc := time.UTC
+
+	timestamps := []time.Time{
+		time.Date(2025, 1, 1, 21, 5, 0, 0, loc),
+		time.Date(2025, 1, 2, 20, 45, 0, 0, loc),
+		time.Date(2025, 1, 2, 21, 15, 0, 0, loc),
+	}
+
+	assert.Equal(t, []float32{0, 0, 1500}, batterySocGoalSlots(timestamps, loc, 21, 0, 1500))
+}
+
+func TestBatterySocGoalSlotsTimezone(t *testing.T) {
+	loc := time.FixedZone("MST", -7*60*60)
+
+	timestamps := []time.Time{
+		time.Date(2025, 1, 2, 3, 45, 0, 0, time.UTC),
+		time.Date(2025, 1, 2, 4, 0, 0, 0, time.UTC),
+		time.Date(2025, 1, 2, 4, 15, 0, 0, time.UTC),
+	}
+
+	assert.Equal(t, []float32{0, 2500, 0}, batterySocGoalSlots(timestamps, loc, 21, 0, 2500))
+}
+
+func TestBatteryRequestSocGoal(t *testing.T) {
+	goal := 20.0
+	ctrl := gomock.NewController(t)
+
+	site := &Site{
+		batteryOptimizerSocGoal:     &goal,
+		batteryOptimizerSocGoalTime: "21:00",
+		batteryOptimizerSocGoalTz:   "UTC",
+	}
+	var meter api.Meter = &struct {
+		api.Meter
+		api.BatteryController
+	}{
+		BatteryController: api.NewMockBatteryController(ctrl),
+	}
+	capacity := 10.0
+	soc := 50.0
+	timestamps := []time.Time{
+		time.Date(2025, 1, 1, 20, 30, 0, 0, time.UTC),
+		time.Date(2025, 1, 1, 20, 45, 0, 0, time.UTC),
+		time.Date(2025, 1, 1, 21, 0, 0, 0, time.UTC),
+	}
+
+	bat, _ := site.batteryRequest(config.NewStaticDevice(config.Named{Name: "battery1"}, meter), types.Measurement{
+		Soc:      &soc,
+		Capacity: &capacity,
+	}, nil, len(timestamps), 0, timestamps)
+
+	assert.Equal(t, []float32{0, 0, 2000}, bat.SGoal)
+	assert.Equal(t, float32(10000), bat.SMax)
 }
 
 func TestShouldSkipOptimizerUpdate(t *testing.T) {
