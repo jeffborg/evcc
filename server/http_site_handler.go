@@ -194,7 +194,7 @@ func batteryOptimizerSocGoalHandler(site site.API) http.HandlerFunc {
 			Tz   string  `json:"tz"`
 		}
 
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := jsonDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, http.StatusBadRequest, err)
 			return
 		}
