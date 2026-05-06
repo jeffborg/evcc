@@ -144,12 +144,6 @@ func boolHandler(set func(bool) error, get func() bool) http.HandlerFunc {
 	return handler(strconv.ParseBool, set, get)
 }
 
-func stringHandler(set func(string) error, get func() string) http.HandlerFunc {
-	return handler(func(v string) (string, error) {
-		return v, nil
-	}, set, get)
-}
-
 // durationHandler updates duration-param api
 func durationHandler(set func(time.Duration) error, get func() time.Duration) http.HandlerFunc {
 	return handler(util.ParseDuration, set, get)
