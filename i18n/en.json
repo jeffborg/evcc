@@ -45,6 +45,12 @@
     "modalTitle": "Home Battery",
     "noBattery": "No batteries configured.",
     "optimizerDischargeToGrid": "Allow optimizer to discharge to grid.",
+    "optimizerSocGoal": {
+      "enable": "Keep a daily reserve target for the optimizer.",
+      "hint": "Applies a daily home-battery SoC goal to the optimizer at the selected local time.",
+      "soc": "Reserve target",
+      "time": "Time"
+    },
     "usageTab": "Battery usage"
   },
   "config": {
