@@ -161,7 +161,7 @@ func TestBatteryRequestDischargeToGrid(t *testing.T) {
 	bat, _ := site.batteryRequest(config.NewStaticDevice(config.Named{Name: "battery1"}, meter), types.Measurement{
 		Soc:      &soc,
 		Capacity: &capacity,
-	})
+	}, nil, 0, 0)
 
 	assert.True(t, bat.DischargeToGrid)
 }

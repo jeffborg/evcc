@@ -230,16 +230,7 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 			continue
 		}
 
-		bat, detail := site.batteryRequest(dev, b)
-
-		// tariff forecast-based grid charging demand
-		if bat.ChargeFromGrid {
-			if demand := site.applyBatteryGridChargeLimit(bat.CMax, grid, minLen); demand != nil {
-				bat.PDemand = prorate(demand, firstSlotDuration)
-			}
-		}
-
-		add(bat, detail)
+		add(site.batteryRequest(dev, b, grid, minLen, firstSlotDuration))
 	}
 
 	// empty request- all loadpoints disabled
@@ -437,7 +428,7 @@ func (site *Site) loadpointRequest(lp loadpoint.API, minLen int, firstSlotDurati
 	return bat, detail
 }
 
-func (site *Site) batteryRequest(dev config.Device[api.Meter], b types.Measurement) (optimizer.BatteryConfig, batteryDetail) {
+func (site *Site) batteryRequest(dev config.Device[api.Meter], b types.Measurement, grid api.Rates, minLen int, firstSlotDuration time.Duration) (optimizer.BatteryConfig, batteryDetail) {
 	bat := optimizer.BatteryConfig{
 		CMax:      batteryPower,
 		DMax:      batteryPower,
@@ -470,6 +461,13 @@ func (site *Site) batteryRequest(dev config.Device[api.Meter], b types.Measureme
 		Name:     dev.Config().Name,
 		Title:    deviceProperties(dev).Title,
 		Capacity: *b.Capacity,
+	}
+
+	// tariff forecast-based grid charging demand
+	if bat.ChargeFromGrid {
+		if demand := site.applyBatteryGridChargeLimit(bat.CMax, grid, minLen); demand != nil {
+			bat.PDemand = prorate(demand, firstSlotDuration)
+		}
 	}
 
 	return bat, detail
