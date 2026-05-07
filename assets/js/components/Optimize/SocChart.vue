@@ -87,7 +87,8 @@ export default defineComponent({
 	},
 	methods: {
 		getChart(batteryIndex: number) {
-			return (this.$refs[`chartRef${batteryIndex}`][0] as { chart?: ChartJS } | undefined)?.chart;
+			return (this.$refs[`chartRef${batteryIndex}`][0] as { chart?: ChartJS } | undefined)
+				?.chart;
 		},
 		emitHoverIndex(index: number | null) {
 			this.$emit("hover-index", index);
