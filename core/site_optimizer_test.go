@@ -166,6 +166,19 @@ func TestBatteryRequestDischargeToGrid(t *testing.T) {
 	assert.True(t, bat.DischargeToGrid)
 }
 
+func TestOptimizerPA(t *testing.T) {
+	t.Run("automatic", func(t *testing.T) {
+		site := new(Site)
+		assert.InDelta(t, 0.0891, site.optimizerPA([]float32{0.25, 0.10}), 1e-6)
+	})
+
+	t.Run("manual override", func(t *testing.T) {
+		manual := 0.33
+		site := &Site{optimizerManualPA: &manual}
+		assert.InDelta(t, 0.00033, site.optimizerPA([]float32{0.25, 0.10}), 1e-9)
+	})
+}
+
 func TestBatterySocGoalSlots(t *testing.T) {
 	loc := time.UTC
 

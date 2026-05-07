@@ -42,6 +42,7 @@ const (
 	// battery settings
 	BatteryDischargeControl     = "batteryDischargeControl"
 	OptimizerDischargeToGrid    = "optimizerDischargeToGrid"
+	OptimizerManualPA           = "optimizerManualPA"
 	BatteryGridChargeLimit      = "batteryGridChargeLimit"
 	BatteryOptimizerSocGoal     = "batteryOptimizerSocGoal"
 	BatteryOptimizerSocGoalTime = "batteryOptimizerSocGoalTime"

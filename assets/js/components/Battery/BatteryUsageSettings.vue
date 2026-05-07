@@ -216,6 +216,48 @@
 				<div class="border-top pt-3">
 					<div class="form-check form-switch mb-3">
 						<input
+							id="optimizerManualPAEnabled"
+							:checked="optimizerManualPAEnabled"
+							class="form-check-input"
+							type="checkbox"
+							role="switch"
+							@change="changeOptimizerManualPAEnabled"
+						/>
+						<div class="form-check-label">
+							<label for="optimizerManualPAEnabled">
+								{{ $t("batterySettings.optimizerPA.enable") }}
+							</label>
+						</div>
+					</div>
+					<div class="row g-3 align-items-end">
+						<div class="col-sm-6">
+							<label class="form-label" for="optimizerManualPA">
+								{{ $t("batterySettings.optimizerPA.value") }}
+							</label>
+							<div class="input-group">
+								<input
+									id="optimizerManualPA"
+									v-model="selectedOptimizerManualPA"
+									type="number"
+									inputmode="decimal"
+									step="0.001"
+									class="form-control mx-0"
+									:disabled="!optimizerManualPAEnabled"
+									@change="changeOptimizerManualPA"
+								/>
+								<span class="input-group-text">
+									{{ pricePerKWhUnit(currency) }}
+								</span>
+							</div>
+						</div>
+					</div>
+					<small class="d-block text-muted mt-2">
+						{{ $t("batterySettings.optimizerPA.hint") }}
+					</small>
+				</div>
+				<div class="border-top pt-3 mt-3">
+					<div class="form-check form-switch mb-3">
+						<input
 							id="batteryOptimizerSocGoalEnabled"
 							:checked="batteryOptimizerSocGoalEnabled"
 							class="form-check-input"
@@ -281,7 +323,7 @@ import CustomSelect from "../Helper/CustomSelect.vue";
 import formatter, { POWER_UNIT } from "@/mixins/formatter";
 import api from "@/api";
 import { defineComponent, type PropType } from "vue";
-import type { Battery } from "@/types/evcc";
+import type { Battery, CURRENCY } from "@/types/evcc";
 
 export default defineComponent({
 	name: "BatteryUsageSettings",
@@ -293,8 +335,10 @@ export default defineComponent({
 		bufferStartSoc: { type: Number, default: 0 },
 		batteryDischargeControl: Boolean,
 		optimizerDischargeToGrid: Boolean,
+		optimizerManualPA: { type: [Number, null] as PropType<number | null>, default: null },
 		batteryOptimizerSocGoal: { type: [Number, null] as PropType<number | null>, default: null },
 		batteryOptimizerSocGoalTime: { type: String, default: "21:00" },
+		currency: String as PropType<CURRENCY>,
 		battery: { type: Object as PropType<Battery> },
 	},
 	data() {
@@ -302,6 +346,8 @@ export default defineComponent({
 			selectedBufferSoc: 100,
 			selectedPrioritySoc: 0,
 			selectedBufferStartSoc: 0,
+			selectedOptimizerManualPA: "",
+			optimizerManualPAEnabled: false,
 			selectedBatteryOptimizerSocGoal: 20,
 			selectedBatteryOptimizerSocGoalTime: "21:00",
 		};
@@ -435,6 +481,14 @@ export default defineComponent({
 		bufferStartSoc(soc) {
 			this.selectedBufferStartSoc = soc;
 		},
+		optimizerManualPA(value) {
+			this.optimizerManualPAEnabled = value !== null && value !== undefined;
+			if (value !== null && value !== undefined) {
+				this.selectedOptimizerManualPA = String(
+					value * this.pricePerKWhDisplayFactor(this.currency)
+				);
+			}
+		},
 		batteryOptimizerSocGoal(goal) {
 			this.selectedBatteryOptimizerSocGoal = goal ?? 20;
 		},
@@ -446,6 +500,13 @@ export default defineComponent({
 		this.selectedBufferSoc = this.bufferSoc || 100;
 		this.selectedPrioritySoc = this.prioritySoc;
 		this.selectedBufferStartSoc = this.bufferStartSoc;
+		this.optimizerManualPAEnabled =
+			this.optimizerManualPA !== null && this.optimizerManualPA !== undefined;
+		if (this.optimizerManualPA !== null && this.optimizerManualPA !== undefined) {
+			this.selectedOptimizerManualPA = String(
+				this.optimizerManualPA * this.pricePerKWhDisplayFactor(this.currency)
+			);
+		}
 		this.selectedBatteryOptimizerSocGoal = this.batteryOptimizerSocGoal ?? 20;
 		this.selectedBatteryOptimizerSocGoalTime = this.batteryOptimizerSocGoalTime || "21:00";
 	},
@@ -530,6 +591,39 @@ export default defineComponent({
 			} catch (err) {
 				console.error(err);
 			}
+		},
+		async changeOptimizerManualPAEnabled(e: Event) {
+			const enabled = (e.target as HTMLInputElement).checked;
+			this.optimizerManualPAEnabled = enabled;
+			try {
+				if (!enabled) {
+					await api.delete("optimizermanualpa");
+					return;
+				}
+				await this.saveOptimizerManualPA();
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async changeOptimizerManualPA() {
+			try {
+				await this.saveOptimizerManualPA();
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async saveOptimizerManualPA() {
+			if (!this.optimizerManualPAEnabled) {
+				return;
+			}
+
+			const value = Number.parseFloat(this.selectedOptimizerManualPA);
+			if (!Number.isFinite(value)) {
+				return;
+			}
+
+			const baseValue = value / this.pricePerKWhDisplayFactor(this.currency);
+			await api.post(`optimizermanualpa/${encodeURIComponent(baseValue)}`);
 		},
 		async changeBatteryOptimizerSocGoalEnabled(e: Event) {
 			const enabled = (e.target as HTMLInputElement).checked;
