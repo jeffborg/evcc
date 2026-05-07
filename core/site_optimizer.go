@@ -190,7 +190,7 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 	}
 
 	// end of horizon Wh value
-	pa := lo.Min(req.TimeSeries.PN) * eta * 0.99
+	pa := site.optimizerPA(req.TimeSeries.PN)
 
 	details := requestDetails{
 		Timestamps: asTimestamps(dt, now),
@@ -704,6 +704,14 @@ func scaleAndPrune(rates api.Rates, div float64, maxLen int) []float32 {
 	}
 
 	return res
+}
+
+func (site *Site) optimizerPA(grid []float32) float32 {
+	if manual := site.GetOptimizerManualPA(); manual != nil {
+		return float32(*manual / 1e3)
+	}
+
+	return lo.Min(grid) * eta * 0.99
 }
 
 func (site *Site) applyPlanGoal(lp loadpoint.API, bat *optimizer.BatteryConfig, minLen int) {
