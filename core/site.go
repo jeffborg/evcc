@@ -78,6 +78,7 @@ type Site struct {
 	bufferStartSoc              float64  // start charging on battery above this Soc
 	batteryDischargeControl     bool     // prevent battery discharge for fast and planned charging
 	optimizerDischargeToGrid    bool     // allow optimizer to consider grid export from battery
+	optimizerManualPA           *float64 // optional manual p_a override in currency/kWh
 	batteryGridChargeLimit      *float64 // grid charging limit
 	batteryOptimizerSocGoal     *float64 // daily optimizer reserve goal
 	batteryOptimizerSocGoalTime string   // local time for daily optimizer reserve goal
@@ -316,6 +317,11 @@ func (site *Site) restoreSettings() error {
 	}
 	if v, err := settings.Bool(keys.OptimizerDischargeToGrid); err == nil {
 		if err := site.SetOptimizerDischargeToGrid(v); err != nil {
+			return err
+		}
+	}
+	if v, err := settings.Float(keys.OptimizerManualPA); err == nil {
+		if err := site.SetOptimizerManualPA(&v); err != nil {
 			return err
 		}
 	}
@@ -1044,6 +1050,7 @@ func (site *Site) prepare() {
 	site.publish(keys.BatteryMode, site.batteryMode)
 	site.publish(keys.BatteryDischargeControl, site.batteryDischargeControl)
 	site.publish(keys.OptimizerDischargeToGrid, site.optimizerDischargeToGrid)
+	site.publish(keys.OptimizerManualPA, site.GetOptimizerManualPA())
 	site.publish(keys.BatteryOptimizerSocGoal, site.GetBatteryOptimizerSocGoal())
 	site.publish(keys.BatteryOptimizerSocGoalTime, site.GetBatteryOptimizerSocGoalTime())
 	site.publish(keys.BatteryOptimizerSocGoalTz, site.GetBatteryOptimizerSocGoalTimezone())

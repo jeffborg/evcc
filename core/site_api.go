@@ -370,6 +370,40 @@ func (site *Site) SetOptimizerDischargeToGrid(val bool) error {
 	return nil
 }
 
+func (site *Site) GetOptimizerManualPA() *float64 {
+	site.RLock()
+	defer site.RUnlock()
+	return site.optimizerManualPA
+}
+
+func (site *Site) SetOptimizerManualPA(val *float64) error {
+	site.log.DEBUG.Println("set optimizer manual p_a:", printPtr("%.3f", val))
+
+	var changed bool
+
+	site.Lock()
+	if !ptrValueEqual(site.optimizerManualPA, val) {
+		site.optimizerManualPA = val
+
+		if val == nil {
+			settings.SetString(keys.OptimizerManualPA, "")
+			site.publish(keys.OptimizerManualPA, nil)
+		} else {
+			settings.SetFloat(keys.OptimizerManualPA, *val)
+			site.publish(keys.OptimizerManualPA, *val)
+		}
+
+		changed = true
+	}
+	site.Unlock()
+
+	if changed && sponsor.IsAuthorized() && optimizerEnabled() {
+		go site.optimizerUpdateAsyncWithForce(true)
+	}
+
+	return nil
+}
+
 func (site *Site) GetBatteryGridChargeLimit() *float64 {
 	site.RLock()
 	defer site.RUnlock()
