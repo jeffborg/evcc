@@ -43,6 +43,8 @@
 							:timestamp="evopt.details.timestamp[0]"
 							:currency="currency"
 							:battery-colors="batteryColors"
+							:active-index="activeTooltipIndex"
+							@hover-index="setActiveTooltipIndex"
 						/>
 
 						<h3 class="fw-normal mb-4">Result: SoC Projection</h3>
@@ -52,6 +54,8 @@
 							:timestamp="evopt.details.timestamp[0]"
 							:currency="currency"
 							:battery-colors="batteryColors"
+							:active-index="activeTooltipIndex"
+							@hover-index="setActiveTooltipIndex"
 						/>
 					</section>
 
@@ -62,6 +66,8 @@
 							:evopt="evopt"
 							:timestamp="evopt.details.timestamp[0]"
 							:currency="currency"
+							:active-index="activeTooltipIndex"
+							@hover-index="setActiveTooltipIndex"
 						/>
 
 						<h3
@@ -161,9 +167,10 @@ export default defineComponent({
 		CopyButton,
 	},
 	mixins: [formatter],
-	data() {
+	data(): { optimizeCooldown: boolean; activeTooltipIndex: number | null } {
 		return {
 			optimizeCooldown: false,
+			activeTooltipIndex: null as number | null,
 		};
 	},
 	head() {
@@ -210,6 +217,7 @@ export default defineComponent({
 	watch: {
 		evopt() {
 			this.optimizeCooldown = false;
+			this.activeTooltipIndex = null;
 		},
 	},
 	methods: {
@@ -220,6 +228,9 @@ export default defineComponent({
 		dimColorBy25Percent(color: string): string {
 			// Convert color to 25% opacity (40 in hex = 25% of 255)
 			return color?.toLowerCase().replace(/ff$/, "40") || color;
+		},
+		setActiveTooltipIndex(index: number | null) {
+			this.activeTooltipIndex = index;
 		},
 	},
 });

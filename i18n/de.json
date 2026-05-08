@@ -44,6 +44,18 @@
     "legendTopSublineDisabledState": "deaktiviert",
     "modalTitle": "Hausbatterie",
     "noBattery": "Keine Batterien konfiguriert.",
+    "optimizerDischargeToGrid": "Optimierer darf ins Netz entladen.",
+    "optimizerPA": {
+      "enable": "Manuellen p_a-Wert für den Optimierer verwenden.",
+      "hint": "Wenn deaktiviert, wird p_a automatisch berechnet. Wenn aktiviert, wird stattdessen der unten gesetzte Wert verwendet.",
+      "value": "p_a-Wert"
+    },
+    "optimizerSocGoal": {
+      "enable": "Tägliches Reservenziel für den Optimierer halten.",
+      "hint": "Setzt dem Optimierer zur gewählten lokalen Uhrzeit ein tägliches Hausbatterie-SoC-Ziel.",
+      "soc": "Reservenziel",
+      "time": "Uhrzeit"
+    },
     "usageTab": "Batterienutzung"
   },
   "config": {
@@ -1170,13 +1182,15 @@
       "battery": "Batterie",
       "batteryCharge": "Batterie laden",
       "batteryDischarge": "Batterie entladen",
-      "batteryForecastEmpty": "leer {time}",
-      "batteryForecastFull": "voll {time}",
+      "batteryForecastEmpty": "Leer ab {time}",
+      "batteryForecastFull": "Voll ab {time}",
+      "batteryForecastNextHigh": "Nächstes Hoch",
+      "batteryForecastNextLow": "Nächstes Tief",
       "batteryGridChargeActive": "Netzladen: aktiv",
       "batteryGridChargeLimit": "Netzladen: wenn",
       "batteryHold": "Batterie (gesperrt)",
       "batteryTooltip": "{energy} von {total} ({soc})",
-      "forecast": "Vorhersage: ",
+      "forecast": "Vorhersage",
       "forecastTooltip": "Vorhersage: verbleibende PV-Produktion heute",
       "gridImport": "Netzbezug",
       "homePower": "Verbrauch",

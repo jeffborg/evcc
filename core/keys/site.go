@@ -40,11 +40,16 @@ const (
 	AuxMeters     = "auxMeters"
 
 	// battery settings
-	BatteryDischargeControl = "batteryDischargeControl"
-	BatteryGridChargeLimit  = "batteryGridChargeLimit"
-	BatteryGridChargeActive = "batteryGridChargeActive"
-	BufferSoc               = "bufferSoc"
-	BufferStartSoc          = "bufferStartSoc"
+	BatteryDischargeControl     = "batteryDischargeControl"
+	OptimizerDischargeToGrid    = "optimizerDischargeToGrid"
+	OptimizerManualPA           = "optimizerManualPA"
+	BatteryGridChargeLimit      = "batteryGridChargeLimit"
+	BatteryOptimizerSocGoal     = "batteryOptimizerSocGoal"
+	BatteryOptimizerSocGoalTime = "batteryOptimizerSocGoalTime"
+	BatteryOptimizerSocGoalTz   = "batteryOptimizerSocGoalTz"
+	BatteryGridChargeActive     = "batteryGridChargeActive"
+	BufferSoc                   = "bufferSoc"
+	BufferStartSoc              = "bufferStartSoc"
 
 	// battery status
 	Battery     = "battery"
