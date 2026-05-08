@@ -28,6 +28,7 @@ import {
 	LineController,
 	LineElement,
 	LinearScale,
+	LogarithmicScale,
 	TimeSeriesScale,
 	Legend,
 	Tooltip,
@@ -53,6 +54,7 @@ registerChartComponents([
 	LineElement,
 	Filler,
 	LinearScale,
+	LogarithmicScale,
 	TimeSeriesScale,
 	Legend,
 	Tooltip,
@@ -118,6 +120,10 @@ export default defineComponent({
 		},
 		maxSolarIndex() {
 			return this.maxEntryIndex(this.solarEntries);
+		},
+		isLogarithmicPriceScale(): boolean {
+			const slots = this.gridSlots || [];
+			return slots.length > 0 && slots.every((slot) => slot.value > 0);
 		},
 		solarHighlights() {
 			const { today, tomorrow, dayAfterTomorrow } = this.solar || {};
@@ -408,7 +414,8 @@ export default defineComponent({
 					},
 					yPrice: {
 						...this.yScaleOptions(ForecastType.Price),
-						suggestedMin: 0,
+						type: this.isLogarithmicPriceScale ? "logarithmic" : "linear",
+						...(this.isLogarithmicPriceScale ? {} : { suggestedMin: 0 }),
 						max: this.yMax(this.gridSlots),
 					},
 				},

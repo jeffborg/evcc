@@ -19,6 +19,7 @@ import {
 	Chart as ChartJS,
 	CategoryScale,
 	LinearScale,
+	LogarithmicScale,
 	LineElement,
 	PointElement,
 	Title,
@@ -41,6 +42,7 @@ const tension = 0;
 ChartJS.register(
 	CategoryScale,
 	LinearScale,
+	LogarithmicScale,
 	LineElement,
 	PointElement,
 	Title,
@@ -75,6 +77,10 @@ export default defineComponent({
 	},
 	emits: ["hover-index"],
 	computed: {
+		isLogarithmicPriceScale(): boolean {
+			const values = [...this.evopt.req.time_series.p_N, ...this.evopt.req.time_series.p_E];
+			return values.length > 0 && values.every((value) => value > 0);
+		},
 		timeLabels(): string[] {
 			const startTime = new Date(this.timestamp);
 			return this.evopt.req.time_series.dt.map((_, index) => {
@@ -199,7 +205,7 @@ export default defineComponent({
 						},
 					},
 					y: {
-						type: "linear",
+						type: this.isLogarithmicPriceScale ? "logarithmic" : "linear",
 						position: "left",
 						title: {
 							display: true,
