@@ -252,6 +252,7 @@
       "customHelp": "Erstelle ein benutzerdefiniertes Gerät mit evcc's Plugin-System.",
       "customOption": "Benutzerdefiniertes Gerät",
       "delete": "Löschen",
+      "dismiss": "Ausblenden",
       "docsLink": "Siehe Dokumentation.",
       "dragHandle": "Verschieben",
       "dragItem": "Verschiebbar: {title}",
@@ -835,6 +836,7 @@
         "allMonths": "Alle Monate",
         "allTimes": "Alle Zeiten",
         "cancel": "Abbrechen",
+        "charge": "Aufschlag",
         "days": "Tage",
         "edit": "Bearbeiten",
         "hours": "Stunden",
@@ -1172,6 +1174,11 @@
       "update": "Anwenden",
       "weekdays": "Tage"
     },
+    "continuousStatus": {
+      "charging": "Boost aktiv.",
+      "connected": "Normalbetrieb.",
+      "waitForVehicle": "Boost angefordert …"
+    },
     "energyflow": {
       "battery": "Batterie",
       "batteryCharge": "Batterie laden",
@@ -1200,11 +1207,35 @@
       "charging": "Heize …",
       "connected": "Standby.",
       "vehicleLimit": "Heizungslimit",
-      "waitForVehicle": "Bereit. Warte auf Heizung …"
+      "waitForVehicle": "Bereit zum Heizen …"
     },
     "hemsWarning": {
       "description": "Reduziere Ladeleistung, um {limit} nicht zu überschreiten.",
       "title": "Externe Begrenzung:"
+    },
+    "history": {
+      "direction": {
+        "battery": {
+          "energy": "geladen",
+          "returnEnergy": "entladen"
+        },
+        "grid": {
+          "energy": "bezogen",
+          "returnEnergy": "eingespeist"
+        }
+      },
+      "downloadCsv": "CSV herunterladen",
+      "empty": "Keine Verlaufsdaten für diesen Zeitraum.",
+      "group": {
+        "battery": "Batterie",
+        "forecast": "Vorhersage",
+        "grid": "Netz",
+        "loadpoint": "Laden & Heizen",
+        "meter": "Verbrauch",
+        "pv": "Erzeugung"
+      },
+      "otherConsumers": "Andere",
+      "title": "Historie"
     },
     "loadpoint": {
       "avgPrice": "⌀ Preis",
@@ -1477,6 +1508,7 @@
     "odometer": "Kilometerstand",
     "overview": "Übersicht",
     "period": {
+      "day": "Tag",
       "month": "Monat",
       "total": "Gesamt",
       "year": "Jahr"

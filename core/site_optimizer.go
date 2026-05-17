@@ -15,6 +15,7 @@ import (
 	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/core/keys"
 	"github.com/evcc-io/evcc/core/loadpoint"
+	"github.com/evcc-io/evcc/core/metrics"
 	"github.com/evcc-io/evcc/core/types"
 	"github.com/evcc-io/evcc/tariff"
 	"github.com/evcc-io/evcc/util/config"
@@ -170,7 +171,7 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 			return err
 		}
 
-		ft = prorate(scaleAndPrune(solarEnergy, 1, minLen), firstSlotDuration)
+		ft = prorate(scaleAndPrune(solarEnergy, site.solarScale(), minLen), firstSlotDuration)
 	}
 
 	req := optimizer.OptimizationInput{
@@ -184,8 +185,8 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 			Dt: dt,
 			Gt: prorate(gt, firstSlotDuration),
 			Ft: ft,
-			PN: scaleAndPrune(grid, 1e3, minLen),
-			PE: scaleAndPrune(feedIn, 1e3, minLen),
+			PN: scaleAndPrune(grid, 0.001, minLen),
+			PE: scaleAndPrune(feedIn, 0.001, minLen),
 		},
 	}
 
@@ -562,7 +563,7 @@ func loadpointProfile(lp loadpoint.API, minLen int) []float64 {
 // homeProfile returns the home base load in Wh
 func (site *Site) homeProfile(minLen int) ([]float64, error) {
 	// kWh over last 30 days
-	profile, err := site.homeEnergy.ImportProfile(now.BeginningOfDay().AddDate(0, 0, -30))
+	profile, err := site.collectors[metrics.Home].ImportProfile(now.BeginningOfDay().AddDate(0, 0, -30))
 	if err != nil {
 		return nil, err
 	}
@@ -718,11 +719,11 @@ func asTimestamps(dt []int, now time.Time) []time.Time {
 	return res
 }
 
-func scaleAndPrune(rates api.Rates, div float64, maxLen int) []float32 {
+func scaleAndPrune(rates api.Rates, scale float64, maxLen int) []float32 {
 	res := make([]float32, 0, maxLen)
 
 	for _, slot := range rates {
-		res = append(res, float32(slot.Value/div))
+		res = append(res, float32(slot.Value*scale))
 		if len(res) >= maxLen {
 			break
 		}
