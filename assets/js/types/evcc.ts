@@ -108,7 +108,12 @@ export interface State {
   prioritySoc?: number;
   bufferStartSoc?: number;
   batteryDischargeControl?: boolean;
+  optimizerDischargeToGrid?: boolean;
+  optimizerManualPA?: number | null;
   batteryGridChargeLimit?: number | null;
+  batteryOptimizerSocGoal?: number | null;
+  batteryOptimizerSocGoalTime?: string;
+  batteryOptimizerSocGoalTz?: string;
   smartCostAvailable?: boolean;
   smartCostType?: SMART_COST_TYPE;
   siteTitle?: string;

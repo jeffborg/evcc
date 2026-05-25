@@ -62,6 +62,12 @@ func boolSetter(set func(bool) error) func(string) error {
 	}, set)
 }
 
+func stringSetter(set func(string) error) func(string) error {
+	return setterFunc(func(v string) (string, error) {
+		return v, nil
+	}, set)
+}
+
 func durationSetter(set func(time.Duration) error) func(string) error {
 	return setterFunc(util.ParseDuration, set)
 }
