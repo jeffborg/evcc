@@ -44,6 +44,18 @@
     "legendTopSublineDisabledState": "deaktiviert",
     "modalTitle": "Hausbatterie",
     "noBattery": "Keine Batterien konfiguriert.",
+    "optimizerDischargeToGrid": "Optimierer darf ins Netz entladen.",
+    "optimizerPA": {
+      "enable": "Manuellen p_a-Wert für den Optimierer verwenden.",
+      "hint": "Wenn deaktiviert, wird p_a automatisch berechnet. Wenn aktiviert, wird stattdessen der unten gesetzte Wert verwendet.",
+      "value": "p_a-Wert"
+    },
+    "optimizerSocGoal": {
+      "enable": "Tägliches Reservenziel für den Optimierer halten.",
+      "hint": "Setzt dem Optimierer zur gewählten lokalen Uhrzeit ein tägliches Hausbatterie-SoC-Ziel.",
+      "soc": "Reservenziel",
+      "time": "Uhrzeit"
+    },
     "usageTab": "Batterienutzung"
   },
   "colors": {
