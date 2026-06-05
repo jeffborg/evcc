@@ -153,7 +153,7 @@ import { formatCompactJson } from "../components/Optimize/compactJson";
 import api from "../api";
 import store from "../store";
 import formatter from "../mixins/formatter";
-import { resolveColors } from "../colors";
+import { resolveColors, deviceColorMap } from "../colors";
 import { CURRENCY } from "../types/evcc";
 
 export default defineComponent({
@@ -199,7 +199,7 @@ export default defineComponent({
 			}
 		},
 		deviceColors() {
-			return store.state.deviceColors ?? {};
+			return deviceColorMap(store.state.deviceColors);
 		},
 		batteryTitles(): string[] {
 			const details = this.evopt?.details?.batteryDetails || [];
