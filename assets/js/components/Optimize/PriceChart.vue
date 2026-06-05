@@ -1,6 +1,6 @@
 <template>
 	<div class="mb-5">
-		<div class="chart-container my-3">
+		<div class="chart-container my-3" @mouseleave="emitHoverIndex(null)">
 			<Chart
 				ref="chartRef"
 				type="line"
@@ -35,6 +35,7 @@ import formatter from "@/mixins/formatter";
 import colors from "@/colors";
 import LegendList from "../Sessions/LegendList.vue";
 import type { Legend } from "../Sessions/types";
+import { syncChartTooltip } from "./chartSync";
 
 const tension = 0;
 
@@ -69,7 +70,12 @@ export default defineComponent({
 			type: String as PropType<CURRENCY>,
 			required: true,
 		},
+		activeIndex: {
+			type: Number as PropType<number | null>,
+			default: null,
+		},
 	},
+	emits: ["hover-index"],
 	computed: {
 		timeLabels(): string[] {
 			const startTime = new Date(this.timestamp);
@@ -111,6 +117,9 @@ export default defineComponent({
 				interaction: {
 					mode: "index",
 					intersect: false,
+				},
+				onHover: (_event, activeElements) => {
+					this.emitHoverIndex(activeElements[0]?.index ?? null);
 				},
 				elements: {
 					point: {
@@ -221,7 +230,21 @@ export default defineComponent({
 				});
 		},
 	},
+	watch: {
+		activeIndex() {
+			this.syncTooltip();
+		},
+	},
 	methods: {
+		getChart() {
+			return (this.$refs["chartRef"] as { chart?: ChartJS } | undefined)?.chart;
+		},
+		emitHoverIndex(index: number | null) {
+			this.$emit("hover-index", index);
+		},
+		syncTooltip() {
+			syncChartTooltip(this.getChart(), this.activeIndex);
+		},
 		getPriceDatasets() {
 			const datasets: any[] = [];
 
