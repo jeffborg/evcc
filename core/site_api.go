@@ -22,6 +22,8 @@ var (
 	ErrBatteryControlNotAvailable = errors.New("battery control not available")
 )
 
+const batteryOptimizerSocGoalDefaultTime = "21:00"
+
 // isConfigurable checks if the meter is configurable
 func isConfigurable(ref string) bool {
 	dev, _ := config.Meters().ByName(ref)
@@ -341,6 +343,67 @@ func (site *Site) SetBatteryDischargeControl(val bool) error {
 	return nil
 }
 
+func (site *Site) GetOptimizerDischargeToGrid() bool {
+	site.RLock()
+	defer site.RUnlock()
+	return site.optimizerDischargeToGrid
+}
+
+func (site *Site) SetOptimizerDischargeToGrid(val bool) error {
+	site.log.DEBUG.Println("set optimizer discharge to grid:", val)
+
+	var changed bool
+
+	site.Lock()
+	if site.optimizerDischargeToGrid != val {
+		site.optimizerDischargeToGrid = val
+		settings.SetBool(keys.OptimizerDischargeToGrid, val)
+		site.publish(keys.OptimizerDischargeToGrid, val)
+		changed = true
+	}
+	site.Unlock()
+
+	if changed && sponsor.IsAuthorized() && optimizerEnabled() {
+		go site.optimizerUpdateAsyncWithForce(true)
+	}
+
+	return nil
+}
+
+func (site *Site) GetOptimizerManualPA() *float64 {
+	site.RLock()
+	defer site.RUnlock()
+	return site.optimizerManualPA
+}
+
+func (site *Site) SetOptimizerManualPA(val *float64) error {
+	site.log.DEBUG.Println("set optimizer manual p_a:", printPtr("%.3f", val))
+
+	var changed bool
+
+	site.Lock()
+	if !ptrValueEqual(site.optimizerManualPA, val) {
+		site.optimizerManualPA = val
+
+		if val == nil {
+			settings.SetString(keys.OptimizerManualPA, "")
+			site.publish(keys.OptimizerManualPA, nil)
+		} else {
+			settings.SetFloat(keys.OptimizerManualPA, *val)
+			site.publish(keys.OptimizerManualPA, *val)
+		}
+
+		changed = true
+	}
+	site.Unlock()
+
+	if changed && sponsor.IsAuthorized() && optimizerEnabled() {
+		go site.optimizerUpdateAsyncWithForce(true)
+	}
+
+	return nil
+}
+
 func (site *Site) GetBatteryGridChargeLimit() *float64 {
 	site.RLock()
 	defer site.RUnlock()
@@ -367,6 +430,131 @@ func (site *Site) SetBatteryGridChargeLimit(val *float64) error {
 			settings.SetFloat(keys.BatteryGridChargeLimit, *val)
 			site.publish(keys.BatteryGridChargeLimit, *val)
 		}
+	}
+
+	return nil
+}
+
+func (site *Site) GetBatteryOptimizerSocGoal() *float64 {
+	site.RLock()
+	defer site.RUnlock()
+	return site.batteryOptimizerSocGoal
+}
+
+func (site *Site) SetBatteryOptimizerSocGoal(val *float64) error {
+	site.log.DEBUG.Println("set battery optimizer soc goal:", printPtr("%.1f", val))
+
+	if !site.hasBatteryControl() {
+		return ErrBatteryControlNotAvailable
+	}
+
+	if val != nil && (*val <= 0 || *val > 100) {
+		return errors.New("battery optimizer soc goal must be greater than 0 and at most 100")
+	}
+
+	var changed bool
+
+	site.Lock()
+	if !ptrValueEqual(site.batteryOptimizerSocGoal, val) {
+		site.batteryOptimizerSocGoal = val
+
+		if val == nil {
+			settings.SetString(keys.BatteryOptimizerSocGoal, "")
+			site.publish(keys.BatteryOptimizerSocGoal, nil)
+		} else {
+			settings.SetFloat(keys.BatteryOptimizerSocGoal, *val)
+			site.publish(keys.BatteryOptimizerSocGoal, *val)
+
+			if site.batteryOptimizerSocGoalTime == "" {
+				site.batteryOptimizerSocGoalTime = batteryOptimizerSocGoalDefaultTime
+				settings.SetString(keys.BatteryOptimizerSocGoalTime, site.batteryOptimizerSocGoalTime)
+				site.publish(keys.BatteryOptimizerSocGoalTime, site.batteryOptimizerSocGoalTime)
+			}
+		}
+
+		changed = true
+	}
+	site.Unlock()
+
+	if changed && sponsor.IsAuthorized() && optimizerEnabled() {
+		go site.optimizerUpdateAsyncWithForce(true)
+	}
+
+	return nil
+}
+
+func (site *Site) GetBatteryOptimizerSocGoalTime() string {
+	site.RLock()
+	defer site.RUnlock()
+
+	if site.batteryOptimizerSocGoalTime == "" {
+		return batteryOptimizerSocGoalDefaultTime
+	}
+
+	return site.batteryOptimizerSocGoalTime
+}
+
+func (site *Site) GetBatteryOptimizerSocGoalTimezone() string {
+	site.RLock()
+	defer site.RUnlock()
+	return site.batteryOptimizerSocGoalTz
+}
+
+func (site *Site) SetBatteryOptimizerSocGoalTime(val string) error {
+	site.log.DEBUG.Println("set battery optimizer soc goal time:", val)
+
+	if !site.hasBatteryControl() {
+		return ErrBatteryControlNotAvailable
+	}
+
+	if _, err := time.Parse("15:04", val); err != nil {
+		return errors.New("battery optimizer soc goal time must use HH:MM format")
+	}
+
+	var changed bool
+
+	site.Lock()
+	if site.batteryOptimizerSocGoalTime != val {
+		site.batteryOptimizerSocGoalTime = val
+		settings.SetString(keys.BatteryOptimizerSocGoalTime, val)
+		site.publish(keys.BatteryOptimizerSocGoalTime, val)
+		changed = true
+	}
+	site.Unlock()
+
+	if changed && sponsor.IsAuthorized() && optimizerEnabled() {
+		go site.optimizerUpdateAsyncWithForce(true)
+	}
+
+	return nil
+}
+
+func (site *Site) SetBatteryOptimizerSocGoalTimezone(val string) error {
+	site.log.DEBUG.Println("set battery optimizer soc goal timezone:", val)
+
+	if !site.hasBatteryControl() {
+		return ErrBatteryControlNotAvailable
+	}
+
+	if val != "" {
+		if _, err := time.LoadLocation(val); err != nil {
+			return errors.New("battery optimizer soc goal timezone must be a valid IANA timezone")
+		}
+	}
+
+	var changed bool
+
+	site.Lock()
+	if site.batteryOptimizerSocGoalTz != val {
+		site.batteryOptimizerSocGoalTz = val
+		settings.SetString(keys.BatteryOptimizerSocGoalTz, val)
+		site.publish(keys.BatteryOptimizerSocGoalTz, val)
+		changed = true
+	}
+	site.Unlock()
+
+	if changed && sponsor.IsAuthorized() && optimizerEnabled() {
+		go site.optimizerUpdateAsyncWithForce(true)
 	}
 
 	return nil
