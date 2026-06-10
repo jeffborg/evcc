@@ -182,19 +182,133 @@
 					</i18n-t>
 				</span>
 			</p>
-			<div v-if="controllable" class="form-check form-switch mt-4">
-				<input
-					id="batteryDischargeControl"
-					:checked="batteryDischargeControl"
-					class="form-check-input"
-					type="checkbox"
-					role="switch"
-					@change="changeDischargeControl"
-				/>
-				<div class="form-check-label">
-					<label for="batteryDischargeControl">
-						{{ $t("batterySettings.discharge") }}
-					</label>
+			<div v-if="controllable" class="d-flex flex-column gap-3 mt-4">
+				<div class="form-check form-switch">
+					<input
+						id="batteryDischargeControl"
+						:checked="batteryDischargeControl"
+						class="form-check-input"
+						type="checkbox"
+						role="switch"
+						@change="changeDischargeControl"
+					/>
+					<div class="form-check-label">
+						<label for="batteryDischargeControl">
+							{{ $t("batterySettings.discharge") }}
+						</label>
+					</div>
+				</div>
+				<div class="form-check form-switch">
+					<input
+						id="optimizerDischargeToGrid"
+						:checked="optimizerDischargeToGrid"
+						class="form-check-input"
+						type="checkbox"
+						role="switch"
+						@change="changeOptimizerDischargeToGrid"
+					/>
+					<div class="form-check-label">
+						<label for="optimizerDischargeToGrid">
+							{{ $t("batterySettings.optimizerDischargeToGrid") }}
+						</label>
+					</div>
+				</div>
+				<div class="border-top pt-3">
+					<div class="form-check form-switch mb-3">
+						<input
+							id="optimizerManualPAEnabled"
+							:checked="optimizerManualPAEnabled"
+							class="form-check-input"
+							type="checkbox"
+							role="switch"
+							@change="changeOptimizerManualPAEnabled"
+						/>
+						<div class="form-check-label">
+							<label for="optimizerManualPAEnabled">
+								{{ $t("batterySettings.optimizerPA.enable") }}
+							</label>
+						</div>
+					</div>
+					<div class="row g-3 align-items-end">
+						<div class="col-sm-6">
+							<label class="form-label" for="optimizerManualPA">
+								{{ $t("batterySettings.optimizerPA.value") }}
+							</label>
+							<div class="input-group">
+								<input
+									id="optimizerManualPA"
+									v-model="selectedOptimizerManualPA"
+									type="number"
+									inputmode="decimal"
+									step="0.001"
+									class="form-control mx-0"
+									:disabled="!optimizerManualPAEnabled"
+									@change="changeOptimizerManualPA"
+								/>
+								<span class="input-group-text">
+									{{ pricePerKWhUnit(currency) }}
+								</span>
+							</div>
+						</div>
+					</div>
+					<small class="d-block text-muted mt-2">
+						{{ $t("batterySettings.optimizerPA.hint") }}
+					</small>
+				</div>
+				<div class="border-top pt-3 mt-3">
+					<div class="form-check form-switch mb-3">
+						<input
+							id="batteryOptimizerSocGoalEnabled"
+							:checked="batteryOptimizerSocGoalEnabled"
+							class="form-check-input"
+							type="checkbox"
+							role="switch"
+							@change="changeBatteryOptimizerSocGoalEnabled"
+						/>
+						<div class="form-check-label">
+							<label for="batteryOptimizerSocGoalEnabled">
+								{{ $t("batterySettings.optimizerSocGoal.enable") }}
+							</label>
+						</div>
+					</div>
+					<div class="row g-3 align-items-end">
+						<div class="col-sm-6">
+							<label class="form-label" for="batteryOptimizerSocGoalTime">
+								{{ $t("batterySettings.optimizerSocGoal.time") }}
+							</label>
+							<input
+								id="batteryOptimizerSocGoalTime"
+								v-model="selectedBatteryOptimizerSocGoalTime"
+								type="time"
+								class="form-control mx-0"
+								:disabled="!batteryOptimizerSocGoalEnabled"
+								@change="changeBatteryOptimizerSocGoalTime"
+							/>
+						</div>
+						<div class="col-sm-6">
+							<label class="form-label" for="batteryOptimizerSocGoal">
+								{{ $t("batterySettings.optimizerSocGoal.soc") }}
+							</label>
+							<select
+								id="batteryOptimizerSocGoal"
+								v-model="selectedBatteryOptimizerSocGoal"
+								class="form-select"
+								:disabled="!batteryOptimizerSocGoalEnabled"
+								@change="changeBatteryOptimizerSocGoal"
+							>
+								<option
+									v-for="option in batteryOptimizerSocGoalOptions"
+									:key="option.value"
+									:value="option.value"
+								>
+									{{ option.name }}
+								</option>
+							</select>
+						</div>
+					</div>
+					<small class="d-block text-muted mt-2">
+						{{ $t("batterySettings.optimizerSocGoal.hint") }}
+					</small>
 				</div>
 			</div>
 		</div>
@@ -209,7 +323,7 @@ import CustomSelect from "../Helper/CustomSelect.vue";
 import formatter, { POWER_UNIT } from "@/mixins/formatter";
 import api from "@/api";
 import { defineComponent, type PropType } from "vue";
-import type { Battery } from "@/types/evcc";
+import type { Battery, CURRENCY } from "@/types/evcc";
 
 export default defineComponent({
 	name: "BatteryUsageSettings",
@@ -220,6 +334,11 @@ export default defineComponent({
 		prioritySoc: { type: Number, default: 0 },
 		bufferStartSoc: { type: Number, default: 0 },
 		batteryDischargeControl: Boolean,
+		optimizerDischargeToGrid: Boolean,
+		optimizerManualPA: { type: [Number, null] as PropType<number | null>, default: null },
+		batteryOptimizerSocGoal: { type: [Number, null] as PropType<number | null>, default: null },
+		batteryOptimizerSocGoalTime: { type: String, default: "21:00" },
+		currency: String as PropType<CURRENCY>,
 		battery: { type: Object as PropType<Battery> },
 	},
 	data() {
@@ -227,6 +346,10 @@ export default defineComponent({
 			selectedBufferSoc: 100,
 			selectedPrioritySoc: 0,
 			selectedBufferStartSoc: 0,
+			selectedOptimizerManualPA: "",
+			optimizerManualPAEnabled: false,
+			selectedBatteryOptimizerSocGoal: 20,
+			selectedBatteryOptimizerSocGoalTime: "21:00",
 		};
 	},
 	computed: {
@@ -257,6 +380,18 @@ export default defineComponent({
 					name: this.fmtSoc(i),
 					disabled: i < this.selectedPrioritySoc,
 				});
+			}
+			return options;
+		},
+		batteryOptimizerSocGoalEnabled() {
+			return (
+				this.batteryOptimizerSocGoal !== null && this.batteryOptimizerSocGoal !== undefined
+			);
+		},
+		batteryOptimizerSocGoalOptions() {
+			const options = [];
+			for (let i = 100; i >= 5; i -= 5) {
+				options.push({ value: i, name: this.fmtSoc(i) });
 			}
 			return options;
 		},
@@ -346,11 +481,34 @@ export default defineComponent({
 		bufferStartSoc(soc) {
 			this.selectedBufferStartSoc = soc;
 		},
+		optimizerManualPA(value) {
+			this.optimizerManualPAEnabled = value !== null && value !== undefined;
+			if (value !== null && value !== undefined) {
+				this.selectedOptimizerManualPA = String(
+					value * this.pricePerKWhDisplayFactor(this.currency)
+				);
+			}
+		},
+		batteryOptimizerSocGoal(goal) {
+			this.selectedBatteryOptimizerSocGoal = goal ?? 20;
+		},
+		batteryOptimizerSocGoalTime(time) {
+			this.selectedBatteryOptimizerSocGoalTime = time || "21:00";
+		},
 	},
 	mounted() {
 		this.selectedBufferSoc = this.bufferSoc || 100;
 		this.selectedPrioritySoc = this.prioritySoc;
 		this.selectedBufferStartSoc = this.bufferStartSoc;
+		this.optimizerManualPAEnabled =
+			this.optimizerManualPA !== null && this.optimizerManualPA !== undefined;
+		if (this.optimizerManualPA !== null && this.optimizerManualPA !== undefined) {
+			this.selectedOptimizerManualPA = String(
+				this.optimizerManualPA * this.pricePerKWhDisplayFactor(this.currency)
+			);
+		}
+		this.selectedBatteryOptimizerSocGoal = this.batteryOptimizerSocGoal ?? 20;
+		this.selectedBatteryOptimizerSocGoalTime = this.batteryOptimizerSocGoalTime || "21:00";
 	},
 	methods: {
 		changeBufferStart($event: Event) {
@@ -426,6 +584,81 @@ export default defineComponent({
 			} catch (err) {
 				console.error(err);
 			}
+		},
+		async changeOptimizerDischargeToGrid(e: Event) {
+			try {
+				await api.post(
+					`optimizerdischargetogrid/${(e.target as HTMLInputElement).checked ? "true" : "false"}`
+				);
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async changeOptimizerManualPAEnabled(e: Event) {
+			const enabled = (e.target as HTMLInputElement).checked;
+			this.optimizerManualPAEnabled = enabled;
+			try {
+				if (!enabled) {
+					await api.delete("optimizermanualpa");
+					return;
+				}
+				await this.saveOptimizerManualPA();
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async changeOptimizerManualPA() {
+			try {
+				await this.saveOptimizerManualPA();
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async saveOptimizerManualPA() {
+			if (!this.optimizerManualPAEnabled) {
+				return;
+			}
+
+			const value = Number.parseFloat(this.selectedOptimizerManualPA);
+			if (!Number.isFinite(value)) {
+				return;
+			}
+
+			const baseValue = value / this.pricePerKWhDisplayFactor(this.currency);
+			await api.post(`optimizermanualpa/${encodeURIComponent(baseValue)}`);
+		},
+		async changeBatteryOptimizerSocGoalEnabled(e: Event) {
+			const enabled = (e.target as HTMLInputElement).checked;
+			try {
+				if (!enabled) {
+					await api.delete("batteryoptimizersocgoal");
+					return;
+				}
+				await this.saveBatteryOptimizerSocGoal();
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async changeBatteryOptimizerSocGoal() {
+			try {
+				await this.saveBatteryOptimizerSocGoal();
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async changeBatteryOptimizerSocGoalTime() {
+			try {
+				await this.saveBatteryOptimizerSocGoal();
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async saveBatteryOptimizerSocGoal() {
+			await api.post("batteryoptimizersocgoal", {
+				soc: this.selectedBatteryOptimizerSocGoal,
+				time: this.selectedBatteryOptimizerSocGoalTime,
+				tz: this.timezone(),
+			});
 		},
 		getBufferStartName(value: number) {
 			const key = value === 0 ? "never" : value === 100 ? "full" : "above";
