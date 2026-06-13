@@ -6,8 +6,10 @@ import (
 
 	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/core/loadpoint"
+	"github.com/evcc-io/evcc/core/site"
 	"github.com/evcc-io/evcc/core/types"
 	"github.com/evcc-io/evcc/tariff"
+	"github.com/evcc-io/evcc/util"
 	"github.com/evcc-io/evcc/util/config"
 	optimizer "github.com/evcc-io/optimizer/client"
 	"github.com/stretchr/testify/assert"
@@ -256,20 +258,20 @@ func TestBatterySocGoalSlotsTimezone(t *testing.T) {
 	assert.Equal(t, []float32{0, 2500, 0}, batterySocGoalSlots(timestamps, loc, 21, 0, 2500))
 }
 
-func TestBatteryRequestSocGoal(t *testing.T) {
-	goal := 20.0
-	ctrl := gomock.NewController(t)
-
-	site := &Site{
-		batteryOptimizerSocGoal:     &goal,
-		batteryOptimizerSocGoalTime: "21:00",
-		batteryOptimizerSocGoalTz:   "UTC",
-	}
-	var meter api.Meter = &struct {
+func batterySocGoalMeter(ctrl *gomock.Controller) api.Meter {
+	return &struct {
 		api.Meter
 		api.BatteryController
 	}{
 		BatteryController: api.NewMockBatteryController(ctrl),
+	}
+}
+
+func TestBatteryRequestSocGoal(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	s := &Site{
+		batteryOptimizerSocGoal: &site.BatteryOptimizerSocGoal{Soc: 20, Time: "21:00", Tz: "UTC"},
 	}
 	capacity := 10.0
 	soc := 50.0
@@ -279,13 +281,63 @@ func TestBatteryRequestSocGoal(t *testing.T) {
 		time.Date(2025, 1, 1, 21, 0, 0, 0, time.UTC),
 	}
 
-	bat, _ := site.batteryRequest(config.NewStaticDevice(config.Named{Name: "battery1"}, meter), types.Measurement{
+	bat, _ := s.batteryRequest(config.NewStaticDevice(config.Named{Name: "battery1"}, batterySocGoalMeter(ctrl)), types.Measurement{
 		Soc:      &soc,
 		Capacity: &capacity,
 	}, nil, len(timestamps), 0, timestamps)
 
 	assert.Equal(t, []float32{0, 0, 2000}, bat.SGoal)
 	assert.Equal(t, float32(10000), bat.SMax)
+}
+
+// TestBatteryRequestSocGoalTimezone proves the goal time is interpreted in the
+// goal's own timezone, not the server's local zone (the reported wrong-slot bug).
+// 21:00 America/New_York (EST, UTC-5) is 02:00 UTC the next day.
+func TestBatteryRequestSocGoalTimezone(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	s := &Site{
+		batteryOptimizerSocGoal: &site.BatteryOptimizerSocGoal{Soc: 20, Time: "21:00", Tz: "America/New_York"},
+	}
+	capacity := 10.0
+	soc := 50.0
+	timestamps := []time.Time{
+		time.Date(2025, 1, 3, 1, 45, 0, 0, time.UTC),
+		time.Date(2025, 1, 3, 2, 0, 0, 0, time.UTC),
+		time.Date(2025, 1, 3, 2, 15, 0, 0, time.UTC),
+	}
+
+	bat, _ := s.batteryRequest(config.NewStaticDevice(config.Named{Name: "battery1"}, batterySocGoalMeter(ctrl)), types.Measurement{
+		Soc:      &soc,
+		Capacity: &capacity,
+	}, nil, len(timestamps), 0, timestamps)
+
+	assert.Equal(t, []float32{0, 2000, 0}, bat.SGoal)
+}
+
+// TestBatteryRequestSocGoalInvalidTimezone asserts an unusable timezone skips the
+// goal entirely rather than silently misplacing it via the server's local zone.
+func TestBatteryRequestSocGoalInvalidTimezone(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	s := &Site{
+		log:                     util.NewLogger("foo"),
+		batteryOptimizerSocGoal: &site.BatteryOptimizerSocGoal{Soc: 20, Time: "21:00", Tz: "Not/AZone"},
+	}
+	capacity := 10.0
+	soc := 50.0
+	timestamps := []time.Time{
+		time.Date(2025, 1, 1, 20, 30, 0, 0, time.UTC),
+		time.Date(2025, 1, 1, 20, 45, 0, 0, time.UTC),
+		time.Date(2025, 1, 1, 21, 0, 0, 0, time.UTC),
+	}
+
+	bat, _ := s.batteryRequest(config.NewStaticDevice(config.Named{Name: "battery1"}, batterySocGoalMeter(ctrl)), types.Measurement{
+		Soc:      &soc,
+		Capacity: &capacity,
+	}, nil, len(timestamps), 0, timestamps)
+
+	assert.Nil(t, bat.SGoal)
 }
 
 func TestShouldSkipOptimizerUpdate(t *testing.T) {

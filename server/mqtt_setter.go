@@ -62,14 +62,22 @@ func boolSetter(set func(bool) error) func(string) error {
 	}, set)
 }
 
-func stringSetter(set func(string) error) func(string) error {
-	return setterFunc(func(v string) (string, error) {
-		return v, nil
-	}, set)
-}
-
 func durationSetter(set func(time.Duration) error) func(string) error {
 	return setterFunc(util.ParseDuration, set)
+}
+
+// jsonPtrSetter unmarshals a JSON payload into *T, passing nil for empty payloads
+func jsonPtrSetter[T any](set func(*T) error) func(string) error {
+	return func(payload string) error {
+		if isEmpty(payload) {
+			return set(nil)
+		}
+		var val T
+		if err := json.Unmarshal([]byte(payload), &val); err != nil {
+			return err
+		}
+		return set(&val)
+	}
 }
 
 func planStrategySetter(set func(api.PlanStrategy) error) func(string) error {
