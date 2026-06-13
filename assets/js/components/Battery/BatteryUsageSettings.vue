@@ -323,7 +323,7 @@ import CustomSelect from "../Helper/CustomSelect.vue";
 import formatter, { POWER_UNIT } from "@/mixins/formatter";
 import api from "@/api";
 import { defineComponent, type PropType } from "vue";
-import type { Battery, CURRENCY } from "@/types/evcc";
+import type { Battery, BatteryOptimizerSocGoal, CURRENCY } from "@/types/evcc";
 
 export default defineComponent({
 	name: "BatteryUsageSettings",
@@ -336,8 +336,10 @@ export default defineComponent({
 		batteryDischargeControl: Boolean,
 		optimizerDischargeToGrid: Boolean,
 		optimizerManualPA: { type: [Number, null] as PropType<number | null>, default: null },
-		batteryOptimizerSocGoal: { type: [Number, null] as PropType<number | null>, default: null },
-		batteryOptimizerSocGoalTime: { type: String, default: "21:00" },
+		batteryOptimizerSocGoal: {
+			type: [Object, null] as PropType<BatteryOptimizerSocGoal | null>,
+			default: null,
+		},
 		currency: String as PropType<CURRENCY>,
 		battery: { type: Object as PropType<Battery> },
 	},
@@ -490,10 +492,8 @@ export default defineComponent({
 			}
 		},
 		batteryOptimizerSocGoal(goal) {
-			this.selectedBatteryOptimizerSocGoal = goal ?? 20;
-		},
-		batteryOptimizerSocGoalTime(time) {
-			this.selectedBatteryOptimizerSocGoalTime = time || "21:00";
+			this.selectedBatteryOptimizerSocGoal = goal?.soc ?? 20;
+			this.selectedBatteryOptimizerSocGoalTime = goal?.time || "21:00";
 		},
 	},
 	mounted() {
@@ -507,8 +507,8 @@ export default defineComponent({
 				this.optimizerManualPA * this.pricePerKWhDisplayFactor(this.currency)
 			);
 		}
-		this.selectedBatteryOptimizerSocGoal = this.batteryOptimizerSocGoal ?? 20;
-		this.selectedBatteryOptimizerSocGoalTime = this.batteryOptimizerSocGoalTime || "21:00";
+		this.selectedBatteryOptimizerSocGoal = this.batteryOptimizerSocGoal?.soc ?? 20;
+		this.selectedBatteryOptimizerSocGoalTime = this.batteryOptimizerSocGoal?.time || "21:00";
 	},
 	methods: {
 		changeBufferStart($event: Event) {
