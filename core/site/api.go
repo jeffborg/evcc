@@ -60,6 +60,11 @@ type API interface {
 	GetBatteryOptimizerSocGoalTimezone() string
 	SetBatteryOptimizerSocGoalTimezone(string) error
 
+	// GetOptimizerChargingStrategy gets the optimizer grid charging strategy
+	GetOptimizerChargingStrategy() string
+	// SetOptimizerChargingStrategy sets the optimizer grid charging strategy
+	SetOptimizerChargingStrategy(strategy string) error
+
 	//
 	// power and energy
 	//
