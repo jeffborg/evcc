@@ -155,6 +155,7 @@ type Loadpoint struct {
 	planEnergyOffset float64          // already charged energy in kWh when plan was set
 	planSlotEnd      time.Time        // current plan slot end time
 	planActive       bool             // charge plan exists and has a currently active slot
+	planBridging     bool             // hold min current to bridge a short gap before the next plan slot
 	planOverrunSent  bool             // notification has been sent already
 	planLocked       PlanLock         // locked plan
 
@@ -2096,6 +2097,11 @@ func (lp *Loadpoint) Update(sitePower, batteryBoostPower float64, consumption, f
 		err = lp.fastCharging()
 		lp.resetPhaseTimer()
 		lp.elapsePVTimer() // let PV mode disable immediately afterwards
+
+	// bridge a short gap before the next plan slot at min current to avoid stop/start
+	case lp.planBridging:
+		err = lp.minCharging()
+		lp.resetPhaseTimer()
 
 	case lp.LimitEnergyReached():
 		lp.log.DEBUG.Printf("limitEnergy reached: %.0fkWh > %0.1fkWh", lp.GetChargedEnergy()/1e3, lp.limitEnergy)

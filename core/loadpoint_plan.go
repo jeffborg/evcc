@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	smallSlotDuration    = 4 * time.Minute  // small planner slot duration we might ignore
-	restartGuardDuration = 30 * time.Second // avoid immediate stop/start flapping around plan transitions
+	smallSlotDuration  = 4 * time.Minute  // small planner slot duration we might ignore
+	planBridgeDuration = 15 * time.Minute // hold min current between plan slots if the next slot starts within this window
 )
 
 // TODO planActive is not guarded by mutex
@@ -124,6 +124,8 @@ func (lp *Loadpoint) GetPlan(targetTime time.Time, requiredDuration, preconditio
 
 // plannerActive checks if the charging plan has a currently active slot
 func (lp *Loadpoint) plannerActive() (active bool) {
+	lp.planBridging = false
+
 	defer func() {
 		lp.setPlanActive(active)
 	}()
@@ -189,6 +191,21 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 		}
 	}
 
+	// during an overrun, don't keep charging through periods that have no planner
+	// tariff data (e.g. demand-tariff peak windows with no defined slots). The planner
+	// falls back to a synthetic continuous slot there, which only drains the home
+	// battery, so stop instead until real slot data covers the current time again.
+	if planOverrun > 0 {
+		if t := lp.site.GetTariff(api.TariffUsagePlanner); t != nil {
+			if rates, err := t.Rates(); err == nil && len(rates) > 0 {
+				if _, err := rates.At(lp.clock.Now()); err != nil {
+					lp.log.DEBUG.Println("plan: overrun without tariff slot for current period- stopping")
+					return false
+				}
+			}
+		}
+	}
+
 	planStart = planner.Start(plan)
 	planEnd = planner.End(plan)
 	lp.log.DEBUG.Printf("plan: charge %v between %v until %v (%spower: %.0fW, avg cost: %.3f)",
@@ -232,14 +249,21 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 		case requiredDuration < smallSlotDuration && requiredDuration > strategy.Precondition:
 			lp.log.DEBUG.Printf("plan: continuing for remaining %v", requiredDuration.Round(time.Second))
 			return true
-		case !planStart.IsZero() && lp.clock.Until(planStart) < restartGuardDuration:
-			lp.log.DEBUG.Printf("plan: avoid re-start within %v, continuing for remaining %v", restartGuardDuration, lp.clock.Until(planStart).Round(time.Second))
-			return true
 		case strategy.Continuous && requiredDuration > strategy.Precondition:
 			lp.log.DEBUG.Printf("plan: ignoring restart at %s for continuous charging", planStart.Round(time.Second).Local())
 			planStart = lp.clock.Now()
 			planEnd = planStart.Add(requiredDuration)
 			return true
+		}
+	}
+
+	// bridge a short gap before the next plan slot: if not currently in an active slot
+	// but charging and the next slot starts within planBridgeDuration, hold at min current
+	// (see Update) instead of stopping, to avoid stop/start flapping (e.g. amber volatility).
+	if !active && lp.enabled && !planStart.IsZero() {
+		if d := lp.clock.Until(planStart); d > 0 && d <= planBridgeDuration {
+			lp.log.DEBUG.Printf("plan: bridging at min current, next slot starts in %v", d.Round(time.Second))
+			lp.planBridging = true
 		}
 	}
 
