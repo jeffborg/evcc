@@ -715,7 +715,7 @@ export interface SelectOption<T> {
 }
 
 export type DeviceType = "charger" | "meter" | "vehicle" | "loadpoint" | "messenger" | "tariff";
-export type MeterType = "grid" | "pv" | "battery" | "charge" | "aux" | "ext";
+export type MeterType = "grid" | "pv" | "battery" | "charge" | "aux" | "ext" | "consumer";
 export type MeterTemplateUsage = "grid" | "pv" | "battery" | "charge" | "aux";
 export type TariffType = "grid" | "feedIn" | "co2" | "planner" | "solar";
 
@@ -730,6 +730,7 @@ export interface SiteConfig {
   title: string;
   aux: string[] | null;
   ext: string[] | null;
+  consumers: string[] | null;
 }
 
 export type ValueOf<T> = T[keyof T];
