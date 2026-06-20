@@ -69,13 +69,13 @@ func deviceTitleOrName[T any](dev config.Device[T]) string {
 }
 
 // circuitMaxPower returns a circuits power limit
-func circuitMaxPower(circuit api.Circuit) float64 {
-	if circuit == nil {
-		return 0
-	}
+// func circuitMaxPower(circuit api.Circuit) float64 {
+// 	if circuit == nil {
+// 		return 0
+// 	}
 
-	return circuit.GetMaxPower()
-}
+// 	return circuit.GetMaxPower()
+// }
 
 // hemsDimmed returns the HEMS dim status, nil-safe
 func hemsDimmed(hems api.HEMS) *bool {
