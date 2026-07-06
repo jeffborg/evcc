@@ -46,7 +46,7 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: refs/heads/evcc-master # force master
           fetch-depth: 0
@@ -64,7 +64,7 @@ jobs:
           git commit -m "merge from evcc/master"
 
       - name: Get dist from cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         id: cache-dist
         with:
           path: dist

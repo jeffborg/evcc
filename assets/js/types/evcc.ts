@@ -38,12 +38,12 @@ export interface InfluxConfig {
 }
 
 export interface HemsConfig {
-  type: string;
+  configured: boolean;
 }
 
 export interface HemsStatus {
   dimmed?: boolean;
-  curtailed?: boolean;
+  curtailed?: number; // allowed feed-in percent (0..100 integer), <100 = curtailed
   maxConsumptionPower?: number;
   maxProductionPower?: number;
 }
@@ -123,6 +123,7 @@ export interface State {
   batteryOptimizerSocGoalTz?: string;
   smartCostAvailable?: boolean;
   smartCostType?: SMART_COST_TYPE;
+  historyUpdated?: string; // ISO timestamp, bumped each 15min metrics persist
   siteTitle?: string;
   deviceColors?: DeviceColorEntry[];
   vehicles: Record<string, Vehicle>;
@@ -226,6 +227,10 @@ export enum ConfigType {
 export type ConfigVehicle = Entity;
 export type ConfigMessenger = Entity;
 
+export interface ConfigHems extends Entity {
+  deviceProduct?: string;
+}
+
 // Configuration-specific types for device setup/configuration contexts
 export interface ConfigCharger extends Omit<Entity, "type"> {
   deviceProduct: string;
@@ -275,6 +280,12 @@ export interface ConfigLoadpoint {
     };
     estimate: boolean;
   };
+  ui: LoadpointUi;
+}
+
+export interface LoadpointUi {
+  minTemp: number;
+  maxTemp: number;
 }
 
 export enum SMART_COST_TYPE {
@@ -286,6 +297,11 @@ export enum SMART_COST_TYPE {
 export enum LENGTH_UNIT {
   KM = "km",
   MILES = "mi",
+}
+
+export enum TIME_FORMAT {
+  H12 = "12",
+  H24 = "24",
 }
 
 export interface Loadpoint {
@@ -366,6 +382,7 @@ export interface Loadpoint {
   vehicleTitle: string;
   vehicleWelcomeActive: boolean;
   batteryBoostLimit: number;
+  ui?: LoadpointUi;
 }
 
 export interface UiLoadpoint extends Loadpoint {
@@ -581,6 +598,12 @@ export type EebusStatus = {
   qr?: string;
 };
 
+export type EebusPairing = {
+  ski: string;
+  shipID: string;
+  source: "paired" | "ski";
+};
+
 export type ModbusProxy = {
   port: number;
   readonly: MODBUS_PROXY_READONLY;
@@ -714,7 +737,14 @@ export interface SelectOption<T> {
   disabled?: boolean;
 }
 
-export type DeviceType = "charger" | "meter" | "vehicle" | "loadpoint" | "messenger" | "tariff";
+export type DeviceType =
+  | "charger"
+  | "meter"
+  | "vehicle"
+  | "loadpoint"
+  | "messenger"
+  | "tariff"
+  | "hems";
 export type MeterType = "grid" | "pv" | "battery" | "charge" | "aux" | "ext" | "consumer";
 export type MeterTemplateUsage = "grid" | "pv" | "battery" | "charge" | "aux";
 export type TariffType = "grid" | "feedIn" | "co2" | "planner" | "solar";
