@@ -78,11 +78,29 @@ jobs:
 
                 # Attempt to merge the master branch into the new branch
                 git merge master --no-edit || {
-                  # If there's a merge conflict, create a pull request
-                  echo "Merge conflict detected for tag ${TAG}. Creating pull request."
-                  git push origin "tag-${TAG}"
-                  gh pr create --title "Resolve merge conflict for tag ${NEW_TAG}" --body "A merge conflict was detected while syncing tag ${NEW_TAG}. Please resolve the conflict in this PR." --head master --base "tag-${TAG}"
-                  continue
+                  echo "Merge conflict detected for tag ${TAG}. Attempting auto-resolution."
+
+                  # Auto-resolve conflicts that are confined to the fork's known,
+                  # permanent divergences from upstream in .github/workflows/:
+                  # deleted workflows, removed jobs (apt, Home Assistant add-on, ...)
+                  # and runner type. Any other conflict is left untouched so the
+                  # sync opens a pull request. See resolve_tag_sync.py for details.
+                  # The script is merged in cleanly from master, so it is present
+                  # in the working tree even though the upstream tag lacks it.
+                  python3 .github/scripts/resolve_tag_sync.py
+
+                  # If any conflicts remain, hand off to a manual pull request.
+                  if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
+                    echo "Unresolved conflicts remain for tag ${TAG}. Creating pull request."
+                    git merge --abort
+                    git push origin "tag-${TAG}"
+                    gh pr create --title "Resolve merge conflict for tag ${NEW_TAG}" --body "A merge conflict was detected while syncing tag ${NEW_TAG}. Please resolve the conflict in this PR." --head master --base "tag-${TAG}"
+                    continue
+                  fi
+
+                  # All conflicts were fork divergences; finalize the auto-resolved merge.
+                  echo "All conflicts were fork divergences. Committing auto-resolved merge."
+                  git commit --no-edit
                 }
                 # Tag the branch with .0 appended to the original tag name
                 git tag "${NEW_TAG}"
