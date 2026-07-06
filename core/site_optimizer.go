@@ -107,6 +107,9 @@ type batteryResult struct {
 type requestDetails struct {
 	Timestamps     []time.Time     `json:"timestamp"`
 	BatteryDetails []batteryDetail `json:"batteryDetails"`
+	// GridForecastMissing flags grid price slots filled with the fallback rate
+	// because the planner tariff had no value, so the UI can hide them.
+	GridForecastMissing []bool `json:"gridForecastMissing"`
 }
 
 const slotsPerHour = float64(time.Hour / tariff.SlotDuration)
@@ -174,7 +177,7 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 		return fmt.Errorf("not enough forecast slots for meaningful optimization: %d < %d (planner=%d, feedIn=%d)", minLen, expectedSlots, len(planner), len(feedIn))
 	}
 
-	grid := fillMissingRateSlots(planner, minLen, plannerRateFallback)
+	grid, gridMissing := fillMissingRateSlots(planner, minLen, plannerRateFallback)
 
 	now := time.Now()
 	dt := timeSteps(minLen, now)
@@ -223,7 +226,8 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 	pa := site.optimizerPA(req.TimeSeries.PN)
 
 	details := requestDetails{
-		Timestamps: asTimestamps(dt, now),
+		Timestamps:          asTimestamps(dt, now),
+		GridForecastMissing: gridMissing,
 	}
 
 	req.Grid = optimizer.GridConfig{
@@ -679,19 +683,24 @@ func currentRates(tariff api.Tariff) api.Rates {
 	})
 }
 
-func fillMissingRateSlots(rates api.Rates, maxLen int, fallback float64) api.Rates {
+// fillMissingRateSlots returns rates padded to maxLen slots. Slots without a
+// matching source rate are filled with fallback and flagged in the missing mask
+// so the UI can distinguish substituted values from real tariff data.
+func fillMissingRateSlots(rates api.Rates, maxLen int, fallback float64) (api.Rates, []bool) {
 	if maxLen <= 0 {
-		return nil
+		return nil, nil
 	}
 
 	start := time.Now().Truncate(tariff.SlotDuration)
 	res := make(api.Rates, 0, maxLen)
+	missing := make([]bool, 0, maxLen)
 
 	slotIndex := 0
 	for i := range maxLen {
 		slotStart := start.Add(time.Duration(i) * tariff.SlotDuration)
 		slotEnd := slotStart.Add(tariff.SlotDuration)
 		value := fallback
+		filled := true
 
 		for slotIndex < len(rates) && !rates[slotIndex].End.After(slotStart) {
 			slotIndex++
@@ -699,6 +708,7 @@ func fillMissingRateSlots(rates api.Rates, maxLen int, fallback float64) api.Rat
 
 		if slotIndex < len(rates) && !slotStart.Before(rates[slotIndex].Start) && slotStart.Before(rates[slotIndex].End) {
 			value = rates[slotIndex].Value
+			filled = false
 		}
 
 		res = append(res, api.Rate{
@@ -706,9 +716,10 @@ func fillMissingRateSlots(rates api.Rates, maxLen int, fallback float64) api.Rat
 			End:   slotEnd,
 			Value: value,
 		})
+		missing = append(missing, filled)
 	}
 
-	return res
+	return res, missing
 }
 
 func rateHorizonSlots(rates api.Rates) int {

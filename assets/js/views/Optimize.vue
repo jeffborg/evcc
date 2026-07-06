@@ -49,6 +49,7 @@
 						<PriceChart
 							:evopt="evopt"
 							:timestamp="evopt.details.timestamp[0]"
+							:grid-forecast-missing="evopt.details.gridForecastMissing"
 							:currency="currency"
 							:active-index="activeTooltipIndex"
 							@hover-index="setActiveTooltipIndex"
