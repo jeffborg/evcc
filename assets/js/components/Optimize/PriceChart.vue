@@ -66,6 +66,10 @@ export default defineComponent({
 			type: String,
 			default: "",
 		},
+		gridForecastMissing: {
+			type: Array as PropType<boolean[]>,
+			default: () => [],
+		},
 		currency: {
 			type: String as PropType<CURRENCY>,
 			required: true,
@@ -252,9 +256,13 @@ export default defineComponent({
 			const convertPrice = (price: number): number => price * 1000;
 
 			// Grid Import Price (solid line, price color)
+			// Slots without a real planner tariff are filled with a fallback rate on
+			// the backend; gap those points so the fallback value is not drawn.
 			datasets.push({
 				label: "Import",
-				data: this.evopt.req.time_series.p_N.map(convertPrice),
+				data: this.evopt.req.time_series.p_N.map((price, index) =>
+					this.gridForecastMissing[index] ? null : convertPrice(price)
+				),
 				borderColor: colors.grid,
 				backgroundColor: colors.grid,
 				fill: false,

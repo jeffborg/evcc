@@ -820,6 +820,7 @@ export interface BatteryDetail {
 export interface OptimizationDetails {
   timestamp: string[]; // Array of ISO timestamp strings
   batteryDetails: BatteryDetail[]; // Array of battery detail objects
+  gridForecastMissing?: boolean[]; // Per-slot flag: grid price filled with fallback rate
 }
 
 // Error response
