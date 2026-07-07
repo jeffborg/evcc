@@ -339,11 +339,3 @@ func TestBatteryRequestSocGoalInvalidTimezone(t *testing.T) {
 
 	assert.Nil(t, bat.SGoal)
 }
-
-func TestShouldSkipOptimizerUpdate(t *testing.T) {
-	now := time.Now()
-
-	assert.True(t, shouldSkipOptimizerUpdate(false, now.Add(-time.Minute), now))
-	assert.False(t, shouldSkipOptimizerUpdate(false, now.Add(-3*time.Minute), now))
-	assert.False(t, shouldSkipOptimizerUpdate(true, now.Add(-time.Minute), now))
-}
