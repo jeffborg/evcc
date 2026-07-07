@@ -16,6 +16,8 @@
 			:priority-soc="state.prioritySoc"
 			:buffer-start-soc="state.bufferStartSoc"
 			:battery-discharge-control="state.batteryDischargeControl"
+			:battery-optimizer-soc-goal="state.batteryOptimizerSocGoal"
+			:battery-optimizer-soc-goal-time="state.batteryOptimizerSocGoalTime"
 			:battery="state.battery"
 		/>
 
