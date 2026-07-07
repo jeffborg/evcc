@@ -86,6 +86,60 @@
 					{{ $t("battery.config.discharge") }}
 				</label>
 			</div>
+
+			<div class="border-top pt-3 mt-3">
+				<div class="form-check form-switch mb-3">
+					<input
+						id="batteryExpSocGoalEnabled"
+						:checked="batteryOptimizerSocGoalEnabled"
+						class="form-check-input"
+						type="checkbox"
+						role="switch"
+						@change="changeBatteryOptimizerSocGoalEnabled"
+					/>
+					<label class="form-check-label" for="batteryExpSocGoalEnabled">
+						{{ $t("batterySettings.optimizerSocGoal.enable") }}
+					</label>
+				</div>
+				<div class="row g-3 align-items-end">
+					<div class="col-sm-6">
+						<label class="form-label" for="batteryExpSocGoalTime">
+							{{ $t("batterySettings.optimizerSocGoal.time") }}
+						</label>
+						<input
+							id="batteryExpSocGoalTime"
+							v-model="selectedBatteryOptimizerSocGoalTime"
+							type="time"
+							class="form-control mx-0"
+							:disabled="!batteryOptimizerSocGoalEnabled"
+							@change="changeBatteryOptimizerSocGoalTime"
+						/>
+					</div>
+					<div class="col-sm-6">
+						<label class="form-label" for="batteryExpSocGoal">
+							{{ $t("batterySettings.optimizerSocGoal.soc") }}
+						</label>
+						<select
+							id="batteryExpSocGoal"
+							v-model="selectedBatteryOptimizerSocGoal"
+							class="form-select"
+							:disabled="!batteryOptimizerSocGoalEnabled"
+							@change="changeBatteryOptimizerSocGoal"
+						>
+							<option
+								v-for="option in batteryOptimizerSocGoalOptions"
+								:key="option.value"
+								:value="option.value"
+							>
+								{{ option.name }}
+							</option>
+						</select>
+					</div>
+				</div>
+				<small class="d-block text-muted mt-2">
+					{{ $t("batterySettings.optimizerSocGoal.hint") }}
+				</small>
+			</div>
 		</template>
 	</Card>
 </template>
@@ -113,6 +167,8 @@ export default defineComponent({
 		prioritySoc: { type: Number, default: 0 },
 		bufferStartSoc: { type: Number, default: 0 },
 		batteryDischargeControl: Boolean,
+		batteryOptimizerSocGoal: { type: [Number, null] as PropType<number | null>, default: null },
+		batteryOptimizerSocGoalTime: { type: String, default: "21:00" },
 		battery: { type: Object as PropType<Battery> },
 	},
 	data() {
@@ -120,6 +176,8 @@ export default defineComponent({
 			selectedBufferSoc: 100,
 			selectedPrioritySoc: 0,
 			selectedBufferStartSoc: 0,
+			selectedBatteryOptimizerSocGoal: 20,
+			selectedBatteryOptimizerSocGoalTime: "21:00",
 		};
 	},
 	computed: {
@@ -157,6 +215,18 @@ export default defineComponent({
 		selectedBufferStartName(): string {
 			return this.getBufferStartName(this.selectedBufferStartSoc);
 		},
+		batteryOptimizerSocGoalEnabled(): boolean {
+			return (
+				this.batteryOptimizerSocGoal !== null && this.batteryOptimizerSocGoal !== undefined
+			);
+		},
+		batteryOptimizerSocGoalOptions() {
+			const options = [];
+			for (let i = 100; i >= 5; i -= 5) {
+				options.push({ value: i, name: this.fmtSoc(i) });
+			}
+			return options;
+		},
 	},
 	watch: {
 		prioritySoc: {
@@ -174,6 +244,18 @@ export default defineComponent({
 		bufferStartSoc: {
 			handler(soc) {
 				this.selectedBufferStartSoc = soc;
+			},
+			immediate: true,
+		},
+		batteryOptimizerSocGoal: {
+			handler(goal) {
+				this.selectedBatteryOptimizerSocGoal = goal ?? 20;
+			},
+			immediate: true,
+		},
+		batteryOptimizerSocGoalTime: {
+			handler(time) {
+				this.selectedBatteryOptimizerSocGoalTime = time || "21:00";
 			},
 			immediate: true,
 		},
@@ -229,6 +311,39 @@ export default defineComponent({
 			} catch (err) {
 				console.error(err);
 			}
+		},
+		async changeBatteryOptimizerSocGoalEnabled(e: Event) {
+			const enabled = (e.target as HTMLInputElement).checked;
+			try {
+				if (!enabled) {
+					await api.delete("batteryoptimizersocgoal");
+					return;
+				}
+				await this.saveBatteryOptimizerSocGoal();
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async changeBatteryOptimizerSocGoal() {
+			try {
+				await this.saveBatteryOptimizerSocGoal();
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async changeBatteryOptimizerSocGoalTime() {
+			try {
+				await this.saveBatteryOptimizerSocGoal();
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async saveBatteryOptimizerSocGoal() {
+			await api.post("batteryoptimizersocgoal", {
+				soc: this.selectedBatteryOptimizerSocGoal,
+				time: this.selectedBatteryOptimizerSocGoalTime,
+				tz: this.timezone(),
+			});
 		},
 		getBufferStartName(value: number) {
 			const key = value === 0 ? "never" : value === 100 ? "full" : "above";
