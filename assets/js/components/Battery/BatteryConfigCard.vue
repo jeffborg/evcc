@@ -150,7 +150,7 @@ import "@h2d2/shopicons/es/regular/lightning";
 import { defineComponent, type PropType } from "vue";
 import formatter from "@/mixins/formatter";
 import api from "@/api";
-import type { Battery } from "@/types/evcc";
+import type { Battery, BatteryOptimizerSocGoal } from "@/types/evcc";
 import Card from "../Helper/Card.vue";
 import InlineSocSelect from "./InlineSocSelect.vue";
 
@@ -167,8 +167,10 @@ export default defineComponent({
 		prioritySoc: { type: Number, default: 0 },
 		bufferStartSoc: { type: Number, default: 0 },
 		batteryDischargeControl: Boolean,
-		batteryOptimizerSocGoal: { type: [Number, null] as PropType<number | null>, default: null },
-		batteryOptimizerSocGoalTime: { type: String, default: "21:00" },
+		batteryOptimizerSocGoal: {
+			type: [Object, null] as PropType<BatteryOptimizerSocGoal | null>,
+			default: null,
+		},
 		battery: { type: Object as PropType<Battery> },
 	},
 	data() {
@@ -248,14 +250,9 @@ export default defineComponent({
 			immediate: true,
 		},
 		batteryOptimizerSocGoal: {
-			handler(goal) {
-				this.selectedBatteryOptimizerSocGoal = goal ?? 20;
-			},
-			immediate: true,
-		},
-		batteryOptimizerSocGoalTime: {
-			handler(time) {
-				this.selectedBatteryOptimizerSocGoalTime = time || "21:00";
+			handler(goal: BatteryOptimizerSocGoal | null) {
+				this.selectedBatteryOptimizerSocGoal = goal?.soc ?? 20;
+				this.selectedBatteryOptimizerSocGoalTime = goal?.time || "21:00";
 			},
 			immediate: true,
 		},
