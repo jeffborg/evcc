@@ -37,5 +37,9 @@ export function robustPriceMax(values: number[], opts: RobustPriceMaxOptions = {
 
   // clip only when the peak dwarfs the everyday range; lift by headroom so the
   // everyday band sits just below the ceiling and spikes clip visibly above it
-  return cap > 0 && trueMax > margin * cap ? cap * headroom : trueMax;
+  if (cap > 0 && trueMax > margin * cap) {
+    // toPrecision strips float artefacts (e.g. 55.00000000001) from the axis max
+    return Number((cap * headroom).toPrecision(12));
+  }
+  return trueMax;
 }

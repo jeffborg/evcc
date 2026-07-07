@@ -35,4 +35,10 @@ describe("robustPriceMax", () => {
       robustPriceMax(spiky, { percentile: 95 })
     );
   });
+
+  it("strips float artefacts from the headroomed cap", () => {
+    // P95 = 50, headroom 1.1 -> 50*1.1 = 55.00000000001 in float; must be clean
+    const vals = [...Array.from({ length: 95 }, () => 50), 2000];
+    expect(robustPriceMax(vals, { percentile: 95, headroom: 1.1 })).toBe(55);
+  });
 });
