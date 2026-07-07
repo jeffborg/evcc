@@ -36,6 +36,7 @@ import colors from "@/colors";
 import LegendList from "../Sessions/LegendList.vue";
 import type { Legend } from "../Sessions/types";
 import { syncChartTooltip } from "./chartSync";
+import { robustPriceMax } from "@/utils/robustPriceMax";
 
 const tension = 0;
 
@@ -81,6 +82,17 @@ export default defineComponent({
 	},
 	emits: ["hover-index"],
 	computed: {
+		priceAxisMax(): number | undefined {
+			const ts = this.evopt?.req?.time_series;
+			if (!ts) return undefined;
+			const missing = this.gridForecastMissing || [];
+			const convert = (p: number) => p * 1000;
+			const values = [
+				...(ts.p_N || []).filter((_, i) => !missing[i]).map(convert),
+				...(ts.p_E || []).map(convert),
+			];
+			return values.length ? robustPriceMax(values) : undefined;
+		},
 		timeLabels(): string[] {
 			const startTime = new Date(this.timestamp);
 			return this.evopt.req.time_series.dt.map((_, index) => {
@@ -214,7 +226,9 @@ export default defineComponent({
 						grid: {
 							drawOnChartArea: true,
 						},
-						// Keep scales purely based on values, no fixed boundaries
+						// cap the top at a robust percentile so rare price spikes don't
+						// flatten the everyday range (tooltip still shows the real value)
+						max: this.priceAxisMax,
 					},
 				},
 			};
