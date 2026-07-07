@@ -9,10 +9,15 @@ import (
 
 	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/core/site"
+	"github.com/evcc-io/evcc/hems/config"
 	"github.com/evcc-io/evcc/hems/smartgrid"
 	"github.com/evcc-io/evcc/plugin"
 	"github.com/evcc-io/evcc/util"
 )
+
+func init() {
+	config.AddCtx("relay", NewFromConfig)
+}
 
 type Relay struct {
 	mu  sync.Mutex
@@ -83,7 +88,8 @@ func (c *Relay) SetUpdated(f func()) {
 }
 
 func (c *Relay) Run() {
-	for range time.Tick(c.interval) {
+	// run immediately, then on every tick
+	for tick := time.Tick(c.interval); ; <-tick {
 		if err := c.run(); err != nil {
 			c.log.ERROR.Println(err)
 		}
@@ -137,15 +143,16 @@ func (c *Relay) setConsumptionLimit(limit float64) error {
 var _ api.HEMS = (*Relay)(nil)
 
 // Dimmed implements api.HEMS, derived from the active consumption limit.
-func (c *Relay) Dimmed() bool {
+func (c *Relay) Dimmed() *bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.limit != nil
+	return new(c.limit != nil)
 }
 
-// Curtailed implements api.HEMS. Relay does not curtail production.
-func (c *Relay) Curtailed() bool {
-	return false
+// CurtailedPercent implements api.HEMS. Relay does not curtail production and
+// hence makes no statement.
+func (c *Relay) CurtailedPercent() *int {
+	return nil
 }
 
 // MaxConsumptionPower implements api.HEMS, returning the active wattage cap.

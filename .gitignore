@@ -6,6 +6,8 @@ __debug_bin*
 *.db
 *.gz
 *.py
+!.github/scripts/*.py
+__pycache__/
 testdata/**/*
 *.log
 *.json
@@ -18,6 +20,7 @@ testdata/**/*
 !assets/js/**/*.yaml
 !package*.json
 !evcc.dist.yaml
+!.coderabbit.yaml
 !tests/**/*.evcc.yaml
 !tests/**/*.tpl.yaml
 !tsconfig.json
@@ -49,3 +52,5 @@ asset-stats.html
 /evcc.db
 /tsconfig.tsbuildinfo
 *storybook.log
+/graphify-out/
+.graphifyignore

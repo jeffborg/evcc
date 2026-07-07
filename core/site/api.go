@@ -42,6 +42,8 @@ type API interface {
 	SetAuxMeterRefs([]string)
 	GetExtMeterRefs() []string
 	SetExtMeterRefs([]string)
+	GetConsumerMeterRefs() []string
+	SetConsumerMeterRefs([]string)
 
 	// circuits
 	GetCircuit() api.Circuit
@@ -64,6 +66,11 @@ type API interface {
 	SetBatteryGridChargeLimit(limit *float64) error
 	GetBatteryOptimizerSocGoal() *BatteryOptimizerSocGoal
 	SetBatteryOptimizerSocGoal(*BatteryOptimizerSocGoal) error
+
+	// GetOptimizerChargingStrategy gets the optimizer grid charging strategy
+	GetOptimizerChargingStrategy() string
+	// SetOptimizerChargingStrategy sets the optimizer grid charging strategy
+	SetOptimizerChargingStrategy(strategy string) error
 
 	//
 	// power and energy

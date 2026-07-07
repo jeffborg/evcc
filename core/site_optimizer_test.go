@@ -162,7 +162,7 @@ func TestFillMissingRateSlots(t *testing.T) {
 		{Start: now.Add(2 * tariff.SlotDuration), End: now.Add(3 * tariff.SlotDuration), Value: 3},
 	}
 
-	got := fillMissingRateSlots(rates, 4, plannerRateFallback)
+	got, _ := fillMissingRateSlots(rates, 4, plannerRateFallback)
 
 	require.Len(t, got, 4)
 	assert.Equal(t, []float64{1, plannerRateFallback, 3, plannerRateFallback}, []float64{

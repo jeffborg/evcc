@@ -98,6 +98,7 @@ type Loadpoint struct {
 
 	Soc             loadpoint.SocConfig
 	Enable, Disable loadpoint.ThresholdConfig
+	ui              loadpoint.UIConfig // display-only, not used in control logic
 
 	// from yaml
 	DefaultMode api.ChargeMode `mapstructure:"mode"`     // Default charge mode, used for disconnect
@@ -163,6 +164,7 @@ type Loadpoint struct {
 	chargePower    float64          // Charging power
 	chargeCurrents []float64        // Phase currents
 	connectedTime  time.Time        // Time when vehicle was connected
+	connectPending bool             // connect notification deferred until vehicle detection settles
 	pvTimer        time.Time        // PV enabled/disable timer
 	phaseTimer     time.Time        // 1p3p switch timer
 	wakeUpTimer    *Timer           // Vehicle wake-up timeout
@@ -382,6 +384,11 @@ func (lp *Loadpoint) restoreSettings() {
 		lp.setSocConfig(socConfig)
 	}
 
+	var ui loadpoint.UIConfig
+	if err := lp.settings.Json(keys.UI, &ui); err == nil {
+		lp.ui = ui
+	}
+
 	t, err1 := lp.settings.Time(keys.PlanTime)
 	v, err2 := lp.settings.Float(keys.PlanEnergy)
 	if err1 == nil && err2 == nil {
@@ -464,6 +471,22 @@ func (lp *Loadpoint) configureChargerType(charger api.Charger) {
 // pushEvent sends push messages to clients
 func (lp *Loadpoint) pushEvent(event string) {
 	lp.pushChan <- messenger.Event{Event: event}
+}
+
+// maybePushVehicleConnect sends a deferred connect notification once vehicle
+// detection has settled
+func (lp *Loadpoint) maybePushVehicleConnect() {
+	if !lp.connectPending {
+		return
+	}
+
+	// hold while detection is still running and the vehicle is unidentified
+	if lp.GetVehicle() == nil && !lp.vehicleDetect.IsZero() {
+		return
+	}
+
+	lp.connectPending = false
+	lp.pushEvent(evVehicleConnect)
 }
 
 // publish sends values to UI and databases
@@ -678,6 +701,8 @@ func (lp *Loadpoint) Prepare(site site.API, uiChan chan<- util.Param, pushChan c
 	lp.publish(keys.DisableThreshold, lp.Disable.Threshold)
 	lp.publish(keys.EnableDelay, lp.Enable.Delay)
 	lp.publish(keys.DisableDelay, lp.Disable.Delay)
+
+	lp.publish(keys.UI, lp.ui)
 
 	if phases := lp.getChargerPhysicalPhases(); phases != 0 {
 		if lp.phasesConfigured != phases && lp.phasesConfigured != 0 {
@@ -937,7 +962,7 @@ func (lp *Loadpoint) setLimit(current float64) error {
 
 		if err != nil {
 			v := lp.GetVehicle()
-			if vv, ok := api.Cap[api.Resurrector](v); ok && errors.Is(err, api.ErrAsleep) {
+			if vv, ok := api.Cap[api.Resurrector](v); ok && errors.Is(err, api.ErrAsleep) && !hasFeature(v, api.WakeUpDisabled) {
 				// https://github.com/evcc-io/evcc/issues/8254
 				// wakeup vehicle
 				lp.log.DEBUG.Printf("set charge current limit: waking up vehicle")
@@ -958,7 +983,7 @@ func (lp *Loadpoint) setLimit(current float64) error {
 	if enabled := current >= effMinCurrent; enabled != lp.enabled {
 		if err := lp.charger.Enable(enabled); err != nil {
 			v := lp.GetVehicle()
-			if vv, ok := api.Cap[api.Resurrector](v); enabled && ok && errors.Is(err, api.ErrAsleep) {
+			if vv, ok := api.Cap[api.Resurrector](v); enabled && ok && errors.Is(err, api.ErrAsleep) && !hasFeature(v, api.WakeUpDisabled) {
 				// https://github.com/evcc-io/evcc/issues/8254
 				// wakeup vehicle
 				lp.log.DEBUG.Printf("charger %s: waking up vehicle", status[enabled])
@@ -1133,10 +1158,17 @@ func (lp *Loadpoint) updateChargerStatus() (bool, error) {
 			if prevStatus != api.StatusNone {
 				switch ev {
 				case evVehicleConnect:
-					lp.pushEvent(evVehicleConnect)
+					// defer notification until vehicle detection settles
+					lp.connectPending = true
 					welcomeCharge = lp.needsWelcomeCharge()
 				case evVehicleDisconnect:
-					lp.pushEvent(evVehicleDisconnect)
+					// a still-pending connect means the vehicle disconnected before
+					// its notification was confirmed; omit both connect and disconnect
+					if lp.connectPending {
+						lp.connectPending = false
+					} else {
+						lp.pushEvent(evVehicleDisconnect)
+					}
 					welcomeCharge = false
 				}
 			}
@@ -1756,13 +1788,13 @@ func (lp *Loadpoint) publishChargeProgress() {
 				telemetry.UpdateEnergy(added, addedGreen)
 			}
 		}
-	} else {
+	} else if !errors.Is(err, api.ErrNotAvailable) {
 		lp.log.ERROR.Printf("charge rater: %v", err)
 	}
 
 	if d, err := lp.chargeTimer.ChargeDuration(); err == nil {
 		lp.chargeDuration = d.Round(time.Second)
-	} else {
+	} else if !errors.Is(err, api.ErrNotAvailable) {
 		lp.log.ERROR.Printf("charge timer: %v", err)
 	}
 
@@ -1784,6 +1816,9 @@ func (lp *Loadpoint) publishChargeProgress() {
 
 	if lp.chargeEnergy != nil {
 		lp.chargeEnergy.AddEnergy(importTotal, nil, lp.chargePower)
+		if v := lp.GetSoc(); v > 0 {
+			lp.chargeEnergy.SetSocTemp(v, lp.chargerHasFeature(api.Heating))
+		}
 	}
 }
 
@@ -1924,6 +1959,10 @@ func (lp *Loadpoint) processTasks() {
 
 // startWakeUpTimer starts wakeUpTimer
 func (lp *Loadpoint) startWakeUpTimer() {
+	if lp.vehicleHasFeature(api.WakeUpDisabled) {
+		return
+	}
+
 	lp.log.DEBUG.Printf("wake-up timer: start")
 	lp.wakeUpTimer.Start()
 }
@@ -2047,6 +2086,9 @@ func (lp *Loadpoint) Update(sitePower, batteryBoostPower float64, consumption, f
 			lp.identifyVehicleByStatus()
 		}
 	}
+
+	// release deferred connect notification once detection has settled
+	lp.maybePushVehicleConnect()
 
 	// publish soc after updating charger status to make sure
 	// initial update of connected state matches charger status

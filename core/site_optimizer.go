@@ -36,11 +36,39 @@ var (
 	optimizerUpdated time.Time
 )
 
+// optimizerChargingStrategies are the valid grid charging strategies; the first
+// entry is the default and preserves the previous hard-coded behavior.
+var optimizerChargingStrategies = []string{
+	string(optimizer.OptimizerStrategyChargingStrategyChargeBeforeExport),
+	string(optimizer.OptimizerStrategyChargingStrategyAttenuateGridPeaks),
+	string(optimizer.OptimizerStrategyChargingStrategyNone),
+}
+
+const defaultOptimizerChargingStrategy = string(optimizer.OptimizerStrategyChargingStrategyChargeBeforeExport)
+
+// triggerOptimizer re-runs the optimizer immediately so a changed setting takes
+// effect without waiting for the next slot. It is a no-op when the optimizer is
+// not active or a run is already in progress; the running update reflects the
+// change on its next slot.
+func (site *Site) triggerOptimizer() {
+	if !sponsor.IsAuthorized() || !optimizerEnabled() {
+		return
+	}
+	if !mu.TryLock() {
+		return
+	}
+	optimizerUpdated = time.Time{} // bypass the slot/debounce gate
+	mu.Unlock()
+
+	go site.optimizerUpdateAsync()
+}
+
 // optimizerResult wraps the optimizer publish payload to implement BytesMarshaler.
 // This ensures publishComplex serializes it as a single JSON message instead of
 // recursively decomposing each struct field and array element into individual MQTT
 // topics (~1,500 messages per optimizer run).
 type optimizerResult struct {
+	Updated time.Time                    `json:"updated"`
 	Req     optimizer.OptimizationInput  `json:"req"`
 	Res     optimizer.OptimizationResult `json:"res"`
 	Details requestDetails               `json:"details"`
@@ -79,9 +107,16 @@ type batteryResult struct {
 type requestDetails struct {
 	Timestamps     []time.Time     `json:"timestamp"`
 	BatteryDetails []batteryDetail `json:"batteryDetails"`
+	// GridForecastMissing flags grid price slots filled with the fallback rate
+	// because the planner tariff had no value, so the UI can hide them.
+	GridForecastMissing []bool `json:"gridForecastMissing"`
 }
 
 const slotsPerHour = float64(time.Hour / tariff.SlotDuration)
+
+// errOptimizerNotReady means battery measurements aren't available yet (e.g. at
+// startup); the slot gate is left open so the next cycle retries.
+var errOptimizerNotReady = errors.New("battery measurements not ready")
 
 func (site *Site) optimizerUpdateAsync() {
 	site.optimizerUpdateAsyncWithForce(false)
@@ -104,11 +139,16 @@ func (site *Site) optimizerUpdateAsyncWithForce(force bool) {
 	var err error
 
 	defer func() {
-		optimizerUpdated = time.Now()
-
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic %v", r)
 		}
+
+		// not ready yet: keep the gate open for an immediate retry next cycle
+		if errors.Is(err, errOptimizerNotReady) {
+			return
+		}
+
+		optimizerUpdated = time.Now()
 
 		if err != nil {
 			site.log.ERROR.Println("optimizer:", err)
@@ -146,7 +186,7 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 		return fmt.Errorf("not enough forecast slots for meaningful optimization: %d < %d (planner=%d, feedIn=%d)", minLen, expectedSlots, len(planner), len(feedIn))
 	}
 
-	grid := fillMissingRateSlots(planner, minLen, plannerRateFallback)
+	grid, gridMissing := fillMissingRateSlots(planner, minLen, plannerRateFallback)
 
 	now := time.Now()
 	dt := timeSteps(minLen, now)
@@ -177,7 +217,7 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 
 	req := optimizer.OptimizationInput{
 		Strategy: optimizer.OptimizerStrategy{
-			ChargingStrategy:    optimizer.OptimizerStrategyChargingStrategyChargeBeforeExport, // AttenuateGridPeaks
+			ChargingStrategy:    optimizer.OptimizerStrategyChargingStrategy(site.GetOptimizerChargingStrategy()),
 			DischargingStrategy: optimizer.OptimizerStrategyDischargingStrategyDischargeBeforeImport,
 		},
 		EtaC: eta,
@@ -195,7 +235,8 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 	pa := site.optimizerPA(req.TimeSeries.PN)
 
 	details := requestDetails{
-		Timestamps: asTimestamps(dt, now),
+		Timestamps:          asTimestamps(dt, now),
+		GridForecastMissing: gridMissing,
 	}
 
 	req.Grid = optimizer.GridConfig{
@@ -226,6 +267,10 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 	}
 
 	for i, dev := range site.batteryMeters {
+		// measurements may lag the configured meters on an off-cycle trigger
+		if i >= len(battery) {
+			break
+		}
 		b := battery[i]
 
 		if b.Capacity == nil || *b.Capacity == 0 || b.Soc == nil {
@@ -235,9 +280,13 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 		add(site.batteryRequest(dev, b, grid, minLen, firstSlotDuration, details.Timestamps))
 	}
 
-	// empty request- all loadpoints disabled
 	if len(req.Batteries) == 0 {
-		return nil
+		// meters configured but measurements not in yet: retry instead of
+		// consuming the slot gate
+		if len(site.batteryMeters) > 0 {
+			return errOptimizerNotReady
+		}
+		return nil // nothing to optimize
 	}
 
 	httpClient := request.NewClient(site.log)
@@ -267,6 +316,7 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 	}
 
 	site.publish("evopt", optimizerResult{
+		Updated: time.Now(),
 		Req:     req,
 		Res:     *resp.JSON200,
 		Details: details,
@@ -646,19 +696,24 @@ func currentRates(tariff api.Tariff) api.Rates {
 	})
 }
 
-func fillMissingRateSlots(rates api.Rates, maxLen int, fallback float64) api.Rates {
+// fillMissingRateSlots returns rates padded to maxLen slots. Slots without a
+// matching source rate are filled with fallback and flagged in the missing mask
+// so the UI can distinguish substituted values from real tariff data.
+func fillMissingRateSlots(rates api.Rates, maxLen int, fallback float64) (api.Rates, []bool) {
 	if maxLen <= 0 {
-		return nil
+		return nil, nil
 	}
 
 	start := time.Now().Truncate(tariff.SlotDuration)
 	res := make(api.Rates, 0, maxLen)
+	missing := make([]bool, 0, maxLen)
 
 	slotIndex := 0
 	for i := range maxLen {
 		slotStart := start.Add(time.Duration(i) * tariff.SlotDuration)
 		slotEnd := slotStart.Add(tariff.SlotDuration)
 		value := fallback
+		filled := true
 
 		for slotIndex < len(rates) && !rates[slotIndex].End.After(slotStart) {
 			slotIndex++
@@ -666,6 +721,7 @@ func fillMissingRateSlots(rates api.Rates, maxLen int, fallback float64) api.Rat
 
 		if slotIndex < len(rates) && !slotStart.Before(rates[slotIndex].Start) && slotStart.Before(rates[slotIndex].End) {
 			value = rates[slotIndex].Value
+			filled = false
 		}
 
 		res = append(res, api.Rate{
@@ -673,9 +729,10 @@ func fillMissingRateSlots(rates api.Rates, maxLen int, fallback float64) api.Rat
 			End:   slotEnd,
 			Value: value,
 		})
+		missing = append(missing, filled)
 	}
 
-	return res
+	return res, missing
 }
 
 func rateHorizonSlots(rates api.Rates) int {
