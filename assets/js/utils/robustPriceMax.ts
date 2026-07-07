@@ -1,45 +1,32 @@
-// Robust upper bound for price charts.
+// Upper bound for price charts.
 //
-// Dynamic tariffs (e.g. AU AEMO/Amber) occasionally spike from a few c/kWh to
-// $20/kWh. Auto-scaling the axis to that peak flattens the normal range into an
-// unreadable line. Instead we cap the axis at a high percentile so the everyday
-// range stays readable and the rare spikes clip at the top.
+// Dynamic tariffs (e.g. AU AEMO/Amber) occasionally spike from a normal range
+// into the dollars per kWh. Auto-scaling the axis to that peak flattens the
+// everyday range into an unreadable line.
 //
-// The cap is only applied when the peak genuinely dwarfs the bulk of the data
-// (margin guard), so calm/elevated days without a spike still scale to their
-// true maximum and nothing is clipped.
+// A fixed spike threshold caps the axis: prices above it clip at the ceiling
+// while everything below keeps a natural linear scale. Unlike a percentile cap
+// this never clips legitimately-high-but-not-spike peaks — only prices that
+// exceed the threshold are treated as spikes.
+//
+// The threshold is expressed in the same unit as the values passed in; callers
+// scale PRICE_SPIKE_CLIP (main currency unit per kWh) to their chart's unit.
+
+export const PRICE_SPIKE_CLIP = 3; // clip prices above 3 /kWh (e.g. AU $3/kWh)
 
 export interface RobustPriceMaxOptions {
-  percentile?: number; // axis cap percentile, default 95 (clips ~top 5% of slots)
-  margin?: number; // only clip when trueMax > margin * percentileValue, default 1.5
-  headroom?: number; // when clipping, lift the cap this much above the percentile so
-  // spikes clip *above* the everyday band (distinct), default 1.1
-}
-
-function percentileOf(sortedAsc: number[], p: number): number {
-  if (sortedAsc.length === 0) return 0;
-  const idx = Math.min(sortedAsc.length - 1, Math.max(0, Math.floor((p / 100) * sortedAsc.length)));
-  return sortedAsc[idx] as number;
+  threshold?: number; // clip above this (chart units); no clipping when unset
 }
 
 /**
- * Returns the value to use as the chart's upper bound: the percentile value when
- * a dominant spike is present, otherwise the true maximum (no clipping).
+ * Returns the chart's upper bound: the threshold when a spike exceeds it,
+ * otherwise the true maximum (so non-spike data scales to its natural range).
  */
 export function robustPriceMax(values: number[], opts: RobustPriceMaxOptions = {}): number {
-  const { percentile = 95, margin = 1.5, headroom = 1.1 } = opts;
+  const { threshold } = opts;
   const finite = values.filter((v) => Number.isFinite(v));
   if (finite.length === 0) return 0;
 
   const trueMax = Math.max(...finite);
-  const sorted = [...finite].sort((a, b) => a - b);
-  const cap = percentileOf(sorted, percentile);
-
-  // clip only when the peak dwarfs the everyday range; lift by headroom so the
-  // everyday band sits just below the ceiling and spikes clip visibly above it
-  if (cap > 0 && trueMax > margin * cap) {
-    // toPrecision strips float artefacts (e.g. 55.00000000001) from the axis max
-    return Number((cap * headroom).toPrecision(12));
-  }
-  return trueMax;
+  return threshold != null && threshold > 0 && trueMax > threshold ? threshold : trueMax;
 }

@@ -66,7 +66,7 @@ import "@h2d2/shopicons/es/regular/arrowright";
 import { is12hFormat } from "@/units";
 import PlanEndIcon from "../MaterialIcon/PlanEnd.vue";
 import formatter from "@/mixins/formatter";
-import { robustPriceMax } from "@/utils/robustPriceMax";
+import { robustPriceMax, PRICE_SPIKE_CLIP } from "@/utils/robustPriceMax";
 import type { Slot } from "@/types/evcc";
 const BAR_WIDTH = 8;
 
@@ -100,9 +100,9 @@ export default defineComponent({
 			values.forEach((value) => {
 				min = Math.min(min, value);
 			});
-			// cap the top at a robust percentile so rare price spikes don't flatten
-			// the everyday range; spike bars clip at full height (see valueStyle)
-			const max = values.length ? robustPriceMax(values) : 0;
+			// clip prices above the spike threshold so they don't flatten the
+			// everyday range; spike bars clip at full height (see valueStyle)
+			const max = values.length ? robustPriceMax(values, { threshold: PRICE_SPIKE_CLIP }) : 0;
 			return { min, max, range: max - min || 1 };
 		},
 		targetLeft() {

@@ -23,7 +23,7 @@ import {
 import colors, { lighterColor } from "@/colors";
 import formatter from "@/mixins/formatter";
 import chartMixin from "./chartMixin";
-import { robustPriceMax } from "@/utils/robustPriceMax";
+import { robustPriceMax, PRICE_SPIKE_CLIP } from "@/utils/robustPriceMax";
 import type { CURRENCY } from "@/types/evcc";
 import type { ForecastSlot } from "./types";
 
@@ -71,9 +71,9 @@ export default defineComponent({
 				...this.feedinSlots.map((s) => s.value),
 			];
 			const dataMin = Math.min(...values);
-			// cap the top at a robust percentile so rare price spikes don't flatten
-			// the everyday range (spikes clip at the axis max; tooltip shows the real value)
-			const dataMax = robustPriceMax(values);
+			// clip prices above the spike threshold so they don't flatten the everyday
+			// range (spikes clip at the axis max; tooltip shows the real value)
+			const dataMax = robustPriceMax(values, { threshold: PRICE_SPIKE_CLIP });
 			const rangeMin = this.zoom ? dataMin : Math.min(0, dataMin);
 			const rangeMax = Math.max(0, dataMax);
 			const range = rangeMax - rangeMin || 1;

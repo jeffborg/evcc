@@ -36,7 +36,7 @@ import colors from "@/colors";
 import LegendList from "../Sessions/LegendList.vue";
 import type { Legend } from "../Sessions/types";
 import { syncChartTooltip } from "./chartSync";
-import { robustPriceMax } from "@/utils/robustPriceMax";
+import { robustPriceMax, PRICE_SPIKE_CLIP } from "@/utils/robustPriceMax";
 
 const tension = 0;
 
@@ -92,7 +92,10 @@ export default defineComponent({
 				...(ts.p_N || []).filter((_, i) => !missing[i]).map(convert),
 				...(ts.p_E || []).map(convert),
 			];
-			return values.length ? robustPriceMax(values) : undefined;
+			// values are in display units (e.g. cents), so scale the base threshold
+			return values.length
+				? robustPriceMax(values, { threshold: PRICE_SPIKE_CLIP * factor })
+				: undefined;
 		},
 		// resolved danger colour used to flag spikes clipped at the axis ceiling
 		spikeColor(): string {

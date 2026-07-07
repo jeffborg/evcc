@@ -1,44 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { robustPriceMax } from "./robustPriceMax";
+import { robustPriceMax, PRICE_SPIKE_CLIP } from "./robustPriceMax";
 
 describe("robustPriceMax", () => {
-  // 48h of 30-min slots: mostly 5-50 c/kWh, with a 1h ($20 = 2000c) spike
-  const spiky = [
-    ...Array.from({ length: 94 }, (_, i) => 5 + (i % 45)), // ~5..49
-    2000,
-    2000, // 1h spike (2 slots)
-  ];
-
-  it("caps the axis well below the spike (P95)", () => {
-    const max = robustPriceMax(spiky, { percentile: 95 });
-    expect(max).toBeLessThan(100); // not 2000
-    expect(max).toBeGreaterThan(40); // still above the normal band
+  it("caps at the threshold when a spike exceeds it", () => {
+    // everyday 0.1..1.1 $/kWh with a 20 $/kWh spike
+    const vals = [0.1, 0.3, 0.6, 1.1, 20];
+    expect(robustPriceMax(vals, { threshold: 3 })).toBe(3);
   });
 
-  it("does not clip a calm day (peak within the everyday range)", () => {
-    const calm = Array.from({ length: 96 }, (_, i) => 5 + (i % 40)); // 5..44, no spike
-    expect(robustPriceMax(calm, { percentile: 95 })).toBe(Math.max(...calm));
+  it("does not clip legit peaks below the threshold", () => {
+    // max 1.1 is a high-but-real peak, not a spike -> full range
+    const vals = [0.1, 0.3, 0.6, 1.1];
+    expect(robustPriceMax(vals, { threshold: 3 })).toBe(1.1);
   });
 
-  it("returns true max when the peak only modestly exceeds the percentile", () => {
-    const gentle = [10, 12, 15, 18, 20, 22, 25, 30]; // 30 < 1.5 * P95
-    expect(robustPriceMax(gentle)).toBe(30);
+  it("returns the true max when no threshold is given", () => {
+    expect(robustPriceMax([0.1, 0.5, 20])).toBe(20);
   });
 
   it("ignores non-finite values and handles empty input", () => {
     expect(robustPriceMax([])).toBe(0);
-    expect(robustPriceMax([NaN, Infinity, 5, 10])).toBe(10);
+    expect(robustPriceMax([NaN, Infinity, 0.5, 20], { threshold: 3 })).toBe(3);
   });
 
-  it("percentile knob is honoured (P98 caps higher than P95)", () => {
-    expect(robustPriceMax(spiky, { percentile: 98 })).toBeGreaterThanOrEqual(
-      robustPriceMax(spiky, { percentile: 95 })
-    );
-  });
-
-  it("strips float artefacts from the headroomed cap", () => {
-    // P95 = 50, headroom 1.1 -> 50*1.1 = 55.00000000001 in float; must be clean
-    const vals = [...Array.from({ length: 95 }, () => 50), 2000];
-    expect(robustPriceMax(vals, { percentile: 95, headroom: 1.1 })).toBe(55);
+  it("exposes a sensible default spike threshold", () => {
+    expect(PRICE_SPIKE_CLIP).toBe(3);
   });
 });
