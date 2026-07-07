@@ -86,12 +86,21 @@ export default defineComponent({
 			const ts = this.evopt?.req?.time_series;
 			if (!ts) return undefined;
 			const missing = this.gridForecastMissing || [];
-			const convert = (p: number) => p * 1000;
+			const factor = this.pricePerKWhDisplayFactor(this.currency);
+			const convert = (p: number) => p * 1000 * factor;
 			const values = [
 				...(ts.p_N || []).filter((_, i) => !missing[i]).map(convert),
 				...(ts.p_E || []).map(convert),
 			];
 			return values.length ? robustPriceMax(values) : undefined;
+		},
+		// resolved danger colour used to flag spikes clipped at the axis ceiling
+		spikeColor(): string {
+			if (typeof getComputedStyle === "undefined") return "#dc3545";
+			return (
+				getComputedStyle(document.documentElement).getPropertyValue("--bs-danger").trim() ||
+				"#dc3545"
+			);
 		},
 		timeLabels(): string[] {
 			const startTime = new Date(this.timestamp);
@@ -270,14 +279,19 @@ export default defineComponent({
 			const factor = this.pricePerKWhDisplayFactor(this.currency);
 			const convertPrice = (price: number): number => price * 1000 * factor;
 
+			const cap = this.priceAxisMax;
+			// a point sits above the axis cap -> it's a clipped spike; mark it
+			const clipped = (v: number | null) => v != null && cap != null && v > cap;
+
 			// Grid Import Price (solid line, price color)
 			// Slots without a real planner tariff are filled with a fallback rate on
 			// the backend; gap those points so the fallback value is not drawn.
+			const importData = this.evopt.req.time_series.p_N.map((price, index) =>
+				this.gridForecastMissing[index] ? null : convertPrice(price)
+			);
 			datasets.push({
 				label: "Import",
-				data: this.evopt.req.time_series.p_N.map((price, index) =>
-					this.gridForecastMissing[index] ? null : convertPrice(price)
-				),
+				data: importData,
 				borderColor: colors.grid,
 				backgroundColor: colors.grid,
 				fill: false,
@@ -285,7 +299,13 @@ export default defineComponent({
 				stepped: true,
 				borderJoinStyle: "round",
 				borderCapStyle: "round",
-				pointRadius: 0,
+				pointRadius: importData.map((v) => (clipped(v) ? 3.5 : 0)),
+				pointBackgroundColor: importData.map((v) =>
+					clipped(v) ? this.spikeColor : colors.grid
+				),
+				pointBorderColor: importData.map((v) =>
+					clipped(v) ? this.spikeColor : colors.grid
+				),
 				pointHoverRadius: 6,
 				borderWidth: 2,
 				yAxisID: "y",
@@ -293,17 +313,24 @@ export default defineComponent({
 			});
 
 			// Grid Export Price (solid line, price color)
+			const exportData = this.evopt.req.time_series.p_E.map(convertPrice);
 			datasets.push({
 				label: "Export",
-				data: this.evopt.req.time_series.p_E.map(convertPrice),
+				data: exportData,
 				borderColor: colors.price,
 				backgroundColor: colors.price,
+				pointRadius: exportData.map((v) => (clipped(v) ? 3.5 : 0)),
+				pointBackgroundColor: exportData.map((v) =>
+					clipped(v) ? this.spikeColor : colors.price
+				),
+				pointBorderColor: exportData.map((v) =>
+					clipped(v) ? this.spikeColor : colors.price
+				),
 				fill: false,
 				tension,
 				stepped: true,
 				borderJoinStyle: "round",
 				borderCapStyle: "round",
-				pointRadius: 0,
 				pointHoverRadius: 6,
 				borderWidth: 2,
 				yAxisID: "y",

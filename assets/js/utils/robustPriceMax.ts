@@ -12,6 +12,8 @@
 export interface RobustPriceMaxOptions {
   percentile?: number; // axis cap percentile, default 95 (clips ~top 5% of slots)
   margin?: number; // only clip when trueMax > margin * percentileValue, default 1.5
+  headroom?: number; // when clipping, lift the cap this much above the percentile so
+  // spikes clip *above* the everyday band (distinct), default 1.1
 }
 
 function percentileOf(sortedAsc: number[], p: number): number {
@@ -25,7 +27,7 @@ function percentileOf(sortedAsc: number[], p: number): number {
  * a dominant spike is present, otherwise the true maximum (no clipping).
  */
 export function robustPriceMax(values: number[], opts: RobustPriceMaxOptions = {}): number {
-  const { percentile = 95, margin = 1.5 } = opts;
+  const { percentile = 95, margin = 1.5, headroom = 1.1 } = opts;
   const finite = values.filter((v) => Number.isFinite(v));
   if (finite.length === 0) return 0;
 
@@ -33,6 +35,7 @@ export function robustPriceMax(values: number[], opts: RobustPriceMaxOptions = {
   const sorted = [...finite].sort((a, b) => a - b);
   const cap = percentileOf(sorted, percentile);
 
-  // clip only when the peak dwarfs the everyday range
-  return cap > 0 && trueMax > margin * cap ? cap : trueMax;
+  // clip only when the peak dwarfs the everyday range; lift by headroom so the
+  // everyday band sits just below the ceiling and spikes clip visibly above it
+  return cap > 0 && trueMax > margin * cap ? cap * headroom : trueMax;
 }
