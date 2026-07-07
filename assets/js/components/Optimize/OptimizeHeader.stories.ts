@@ -16,6 +16,7 @@ const base = {
   currency: CURRENCY.EUR,
   chargingStrategies: ["charge_before_export", "attenuate_grid_peaks", "none"],
   selectedStrategy: "charge_before_export",
+  dischargeToGrid: true,
   pending: false,
 };
 
