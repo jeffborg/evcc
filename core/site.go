@@ -75,16 +75,14 @@ type Site struct {
 	consumerMeters []config.Device[api.Meter] // Consumer meters
 
 	// battery settings
-	prioritySoc                 float64  // prefer battery up to this Soc
-	bufferSoc                   float64  // continue charging on battery above this Soc
-	bufferStartSoc              float64  // start charging on battery above this Soc
-	batteryDischargeControl     bool     // prevent battery discharge for fast and planned charging
-	optimizerDischargeToGrid    bool     // allow optimizer to consider grid export from battery
-	optimizerManualPA           *float64 // optional manual p_a override in currency/kWh
-	batteryGridChargeLimit      *float64 // grid charging limit
-	batteryOptimizerSocGoal     *float64 // daily optimizer reserve goal
-	batteryOptimizerSocGoalTime string   // local time for daily optimizer reserve goal
-	batteryOptimizerSocGoalTz   string   // browser timezone for daily optimizer reserve goal
+	prioritySoc              float64                       // prefer battery up to this Soc
+	bufferSoc                float64                       // continue charging on battery above this Soc
+	bufferStartSoc           float64                       // start charging on battery above this Soc
+	batteryDischargeControl  bool                          // prevent battery discharge for fast and planned charging
+	optimizerDischargeToGrid bool                          // allow optimizer to consider grid export from battery
+	optimizerManualPA        *float64                      // optional manual p_a override in currency/kWh
+	batteryGridChargeLimit   *float64                      // grid charging limit
+	batteryOptimizerSocGoal  *site.BatteryOptimizerSocGoal // daily optimizer reserve goal (soc + local time + timezone)
 
 	// optimizer settings
 	optimizerChargingStrategy string // optimizer grid charging strategy
@@ -378,18 +376,8 @@ func (site *Site) restoreSettings() error {
 			return err
 		}
 	}
-	if v, err := settings.String(keys.BatteryOptimizerSocGoalTime); err == nil && v != "" {
-		if err := site.SetBatteryOptimizerSocGoalTime(v); err != nil && !errors.Is(err, ErrBatteryControlNotAvailable) {
-			return err
-		}
-	}
-	if v, err := settings.String(keys.BatteryOptimizerSocGoalTz); err == nil && v != "" {
-		if err := site.SetBatteryOptimizerSocGoalTimezone(v); err != nil && !errors.Is(err, ErrBatteryControlNotAvailable) {
-			return err
-		}
-	}
-	if v, err := settings.Float(keys.BatteryOptimizerSocGoal); err == nil {
-		if err := site.SetBatteryOptimizerSocGoal(&v); err != nil && !errors.Is(err, ErrBatteryControlNotAvailable) {
+	if goal, err := loadBatteryOptimizerSocGoal(); err == nil {
+		if err := site.SetBatteryOptimizerSocGoal(goal); err != nil && !errors.Is(err, ErrBatteryControlNotAvailable) {
 			return err
 		}
 	}
@@ -1151,8 +1139,6 @@ func (site *Site) prepare() {
 	site.publish(keys.OptimizerDischargeToGrid, site.optimizerDischargeToGrid)
 	site.publish(keys.OptimizerManualPA, site.GetOptimizerManualPA())
 	site.publish(keys.BatteryOptimizerSocGoal, site.GetBatteryOptimizerSocGoal())
-	site.publish(keys.BatteryOptimizerSocGoalTime, site.GetBatteryOptimizerSocGoalTime())
-	site.publish(keys.BatteryOptimizerSocGoalTz, site.GetBatteryOptimizerSocGoalTimezone())
 	site.publish(keys.ResidualPower, site.GetResidualPower())
 	site.publish(keys.SmartCostAvailable, site.isDynamicTariff(api.TariffUsagePlanner))
 	site.publish(keys.SmartFeedInPriorityAvailable, site.isDynamicTariff(api.TariffUsageFeedIn))

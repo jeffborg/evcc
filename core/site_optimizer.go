@@ -119,20 +119,13 @@ const slotsPerHour = float64(time.Hour / tariff.SlotDuration)
 var errOptimizerNotReady = errors.New("battery measurements not ready")
 
 func (site *Site) optimizerUpdateAsync() {
-	site.optimizerUpdateAsyncWithForce(false)
-}
-
-func shouldSkipOptimizerUpdate(force bool, updated, now time.Time) bool {
-	return !force && now.Sub(updated) < 2*time.Minute
-}
-
-func (site *Site) optimizerUpdateAsyncWithForce(force bool) {
 	if !mu.TryLock() {
 		return
 	}
 	defer mu.Unlock()
 
-	if shouldSkipOptimizerUpdate(force, optimizerUpdated, time.Now()) {
+	// slot/debounce gate; triggerOptimizer bypasses it by zeroing optimizerUpdated
+	if time.Since(optimizerUpdated) < 2*time.Minute {
 		return
 	}
 
@@ -833,13 +826,22 @@ func (site *Site) applyBatterySocGoal(bat *optimizer.BatteryConfig, capacity flo
 		return
 	}
 
-	targetTime, err := time.Parse("15:04", site.GetBatteryOptimizerSocGoalTime())
+	targetTime, err := time.Parse("15:04", goal.Time)
 	if err != nil {
 		site.log.ERROR.Println("optimizer:", err)
 		return
 	}
 
-	goalWh := float32(capacity * *goal * 10)
+	// the goal time is meaningless without its zone: interpret it strictly in
+	// the configured timezone and never fall back to the server's local zone,
+	// which would misplace the reserve by the UTC offset
+	loc, err := time.LoadLocation(goal.Tz)
+	if err != nil {
+		site.log.ERROR.Println("optimizer:", err)
+		return
+	}
+
+	goalWh := float32(capacity * goal.Soc * 10)
 
 	if bat.SMin > 0 {
 		goalWh = max(goalWh, bat.SMin)
@@ -855,16 +857,6 @@ func (site *Site) applyBatterySocGoal(bat *optimizer.BatteryConfig, capacity flo
 
 	if goalWh <= 0 {
 		return
-	}
-
-	loc := time.Local
-	if tz := site.GetBatteryOptimizerSocGoalTimezone(); tz != "" {
-		goalLoc, err := time.LoadLocation(tz)
-		if err != nil {
-			site.log.ERROR.Println("optimizer:", err)
-			return
-		}
-		loc = goalLoc
 	}
 
 	if slots := batterySocGoalSlots(timestamps, loc, targetTime.Hour(), targetTime.Minute(), goalWh); slots != nil {
