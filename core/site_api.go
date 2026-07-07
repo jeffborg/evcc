@@ -392,8 +392,8 @@ func (site *Site) SetOptimizerDischargeToGrid(val bool) error {
 	}
 	site.Unlock()
 
-	if changed && sponsor.IsAuthorized() && optimizerEnabled() {
-		go site.optimizerUpdateAsyncWithForce(true)
+	if changed {
+		site.triggerOptimizer()
 	}
 
 	return nil
@@ -426,8 +426,8 @@ func (site *Site) SetOptimizerManualPA(val *float64) error {
 	}
 	site.Unlock()
 
-	if changed && sponsor.IsAuthorized() && optimizerEnabled() {
-		go site.optimizerUpdateAsyncWithForce(true)
+	if changed {
+		site.triggerOptimizer()
 	}
 
 	return nil
@@ -505,8 +505,8 @@ func (site *Site) SetBatteryOptimizerSocGoal(val *float64) error {
 	}
 	site.Unlock()
 
-	if changed && sponsor.IsAuthorized() && optimizerEnabled() {
-		go site.optimizerUpdateAsyncWithForce(true)
+	if changed {
+		site.triggerOptimizer()
 	}
 
 	return nil
@@ -551,8 +551,8 @@ func (site *Site) SetBatteryOptimizerSocGoalTime(val string) error {
 	}
 	site.Unlock()
 
-	if changed && sponsor.IsAuthorized() && optimizerEnabled() {
-		go site.optimizerUpdateAsyncWithForce(true)
+	if changed {
+		site.triggerOptimizer()
 	}
 
 	return nil
@@ -582,8 +582,8 @@ func (site *Site) SetBatteryOptimizerSocGoalTimezone(val string) error {
 	}
 	site.Unlock()
 
-	if changed && sponsor.IsAuthorized() && optimizerEnabled() {
-		go site.optimizerUpdateAsyncWithForce(true)
+	if changed {
+		site.triggerOptimizer()
 	}
 
 	return nil
