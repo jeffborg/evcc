@@ -29,8 +29,8 @@ import (
 )
 
 var (
-	eta          = float32(0.9)  // efficiency of the battery charging/discharging
-	batteryPower = float32(6000) // default power of the battery in W
+	eta          = float32(0.9)   // efficiency of the battery charging/discharging
+	batteryPower = float32(10000) // default power of the battery in W
 
 	mu               sync.Mutex
 	optimizerUpdated time.Time
@@ -83,7 +83,8 @@ func (r optimizerResult) MarshalBytes() ([]byte, error) {
 type batteryType string
 
 const (
-	OPTIMIZER_URI = "https://optimizer.evcc.io"
+	OPTIMIZER_URI       = "https://optimizer.evcc.io"
+	plannerRateFallback = 20
 
 	batteryTypeLoadpoint batteryType = "loadpoint"
 	batteryTypeVehicle   batteryType = "vehicle"
@@ -106,6 +107,9 @@ type batteryResult struct {
 type requestDetails struct {
 	Timestamps     []time.Time     `json:"timestamp"`
 	BatteryDetails []batteryDetail `json:"batteryDetails"`
+	// GridForecastMissing flags grid price slots filled with the fallback rate
+	// because the planner tariff had no value, so the UI can hide them.
+	GridForecastMissing []bool `json:"gridForecastMissing"`
 }
 
 const slotsPerHour = float64(time.Hour / tariff.SlotDuration)
@@ -115,12 +119,20 @@ const slotsPerHour = float64(time.Hour / tariff.SlotDuration)
 var errOptimizerNotReady = errors.New("battery measurements not ready")
 
 func (site *Site) optimizerUpdateAsync() {
+	site.optimizerUpdateAsyncWithForce(false)
+}
+
+func shouldSkipOptimizerUpdate(force bool, updated, now time.Time) bool {
+	return !force && now.Sub(updated) < 2*time.Minute
+}
+
+func (site *Site) optimizerUpdateAsyncWithForce(force bool) {
 	if !mu.TryLock() {
 		return
 	}
 	defer mu.Unlock()
 
-	if time.Since(optimizerUpdated) < 2*time.Minute {
+	if shouldSkipOptimizerUpdate(force, optimizerUpdated, time.Now()) {
 		return
 	}
 
@@ -150,11 +162,13 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 	solarTariff := site.GetTariff(api.TariffUsageSolar)
 	solar := currentRates(solarTariff)
 
-	grid := currentRates(site.GetTariff(api.TariffUsageGrid))
+	planner := currentRates(site.GetTariff(api.TariffUsagePlanner))
 	feedIn := currentRates(site.GetTariff(api.TariffUsageFeedIn))
 
-	minLen := lo.Min([]int{len(grid), len(feedIn)})
-	// exclude empty solar forecast from minLen
+	minLen := len(feedIn)
+	if plannerLen := rateHorizonSlots(planner); plannerLen > 0 {
+		minLen = min(minLen, plannerLen)
+	}
 	if solarTariff != nil && len(solar) > 0 {
 		minLen = min(minLen, len(solar))
 	}
@@ -167,19 +181,21 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 
 	if expectedSlots := 8; minLen < expectedSlots {
 		if solarTariff != nil {
-			return fmt.Errorf("not enough forecast slots for meaningful optimization: %d < %d (grid=%d, feedIn=%d, solar=%d)", minLen, expectedSlots, len(grid), len(feedIn), len(solar))
+			return fmt.Errorf("not enough forecast slots for meaningful optimization: %d < %d (planner=%d, feedIn=%d, solar=%d)", minLen, expectedSlots, len(planner), len(feedIn), len(solar))
 		}
-		return fmt.Errorf("not enough forecast slots for meaningful optimization: %d < %d (grid=%d, feedIn=%d)", minLen, expectedSlots, len(grid), len(feedIn))
+		return fmt.Errorf("not enough forecast slots for meaningful optimization: %d < %d (planner=%d, feedIn=%d)", minLen, expectedSlots, len(planner), len(feedIn))
 	}
+
+	grid, gridMissing := fillMissingRateSlots(planner, minLen, plannerRateFallback)
 
 	now := time.Now()
 	dt := timeSteps(minLen, now)
 	firstSlotDuration := time.Duration(dt[0]) * time.Second
 
-	site.log.DEBUG.Printf("optimizer: optimizing %d slots until %v: grid=%d, feedIn=%d, solar=%d, first slot: %v",
+	site.log.DEBUG.Printf("optimizer: optimizing %d slots until %v: planner=%d, feedIn=%d, solar=%d, first slot: %v",
 		minLen,
 		grid[minLen-1].End.Local(),
-		len(grid), len(feedIn), len(solar),
+		len(planner), len(feedIn), len(solar),
 		firstSlotDuration,
 	)
 
@@ -216,19 +232,16 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 	}
 
 	// end of horizon Wh value
-	pa := lo.Min(req.TimeSeries.PN) * eta * 0.99
+	pa := site.optimizerPA(req.TimeSeries.PN)
 
 	details := requestDetails{
-		Timestamps: asTimestamps(dt, now),
+		Timestamps:          asTimestamps(dt, now),
+		GridForecastMissing: gridMissing,
 	}
 
-	if site.circuit != nil {
-		if pMaxImp := site.circuit.GetMaxPower(); pMaxImp > 0 {
-			req.Grid = optimizer.GridConfig{
-				// hard grid import limit if no price penalty is set by PrcPExcImp
-				PMaxImp: float32(pMaxImp),
-			}
-		}
+	req.Grid = optimizer.GridConfig{
+		// hard grid import limit if no price penalty is set by PrcPExcImp
+		PMaxImp: 15000,
 	}
 
 	add := func(battery optimizer.BatteryConfig, detail batteryDetail) {
@@ -264,7 +277,7 @@ func (site *Site) optimizerUpdate(battery []types.Measurement) error {
 			continue
 		}
 
-		add(site.batteryRequest(dev, b, grid, minLen, firstSlotDuration))
+		add(site.batteryRequest(dev, b, grid, minLen, firstSlotDuration, details.Timestamps))
 	}
 
 	if len(req.Batteries) == 0 {
@@ -492,7 +505,7 @@ func (site *Site) loadpointRequest(lp loadpoint.API, minLen int, firstSlotDurati
 	return bat, detail
 }
 
-func (site *Site) batteryRequest(dev config.Device[api.Meter], b types.Measurement, grid api.Rates, minLen int, firstSlotDuration time.Duration) (optimizer.BatteryConfig, batteryDetail) {
+func (site *Site) batteryRequest(dev config.Device[api.Meter], b types.Measurement, grid api.Rates, minLen int, firstSlotDuration time.Duration, timestamps []time.Time) (optimizer.BatteryConfig, batteryDetail) {
 	bat := optimizer.BatteryConfig{
 		CMax:      batteryPower,
 		DMax:      batteryPower,
@@ -505,6 +518,7 @@ func (site *Site) batteryRequest(dev config.Device[api.Meter], b types.Measureme
 
 	if api.HasCap[api.BatteryController](instance) {
 		bat.ChargeFromGrid = true
+		bat.DischargeToGrid = site.optimizerDischargeToGrid
 	}
 
 	if m, ok := api.Cap[api.BatteryPowerLimiter](instance); ok {
@@ -532,6 +546,8 @@ func (site *Site) batteryRequest(dev config.Device[api.Meter], b types.Measureme
 			bat.PDemand = prorate(demand, firstSlotDuration)
 		}
 	}
+
+	site.applyBatterySocGoal(&bat, *b.Capacity, timestamps)
 
 	return bat, detail
 }
@@ -680,6 +696,59 @@ func currentRates(tariff api.Tariff) api.Rates {
 	})
 }
 
+// fillMissingRateSlots returns rates padded to maxLen slots. Slots without a
+// matching source rate are filled with fallback and flagged in the missing mask
+// so the UI can distinguish substituted values from real tariff data.
+func fillMissingRateSlots(rates api.Rates, maxLen int, fallback float64) (api.Rates, []bool) {
+	if maxLen <= 0 {
+		return nil, nil
+	}
+
+	start := time.Now().Truncate(tariff.SlotDuration)
+	res := make(api.Rates, 0, maxLen)
+	missing := make([]bool, 0, maxLen)
+
+	slotIndex := 0
+	for i := range maxLen {
+		slotStart := start.Add(time.Duration(i) * tariff.SlotDuration)
+		slotEnd := slotStart.Add(tariff.SlotDuration)
+		value := fallback
+		filled := true
+
+		for slotIndex < len(rates) && !rates[slotIndex].End.After(slotStart) {
+			slotIndex++
+		}
+
+		if slotIndex < len(rates) && !slotStart.Before(rates[slotIndex].Start) && slotStart.Before(rates[slotIndex].End) {
+			value = rates[slotIndex].Value
+			filled = false
+		}
+
+		res = append(res, api.Rate{
+			Start: slotStart,
+			End:   slotEnd,
+			Value: value,
+		})
+		missing = append(missing, filled)
+	}
+
+	return res, missing
+}
+
+func rateHorizonSlots(rates api.Rates) int {
+	if len(rates) == 0 {
+		return 0
+	}
+
+	start := time.Now().Truncate(tariff.SlotDuration)
+	end := rates[len(rates)-1].End
+	if !end.After(start) {
+		return 0
+	}
+
+	return int(end.Sub(start) / tariff.SlotDuration)
+}
+
 func timeSteps(minLen int, now time.Time) []int {
 	res := make([]int, 0, minLen)
 
@@ -721,6 +790,14 @@ func scaleAndPrune(rates api.Rates, scale float64, maxLen int) []float32 {
 	return res
 }
 
+func (site *Site) optimizerPA(grid []float32) float32 {
+	if manual := site.GetOptimizerManualPA(); manual != nil {
+		return float32(*manual / 1e3)
+	}
+
+	return lo.Min(grid) * eta * 0.99
+}
+
 func (site *Site) applyPlanGoal(lp loadpoint.API, bat *optimizer.BatteryConfig, minLen int) {
 	goal, socBased := lp.GetPlanGoal()
 	if goal <= 0 {
@@ -748,6 +825,90 @@ func (site *Site) applyPlanGoal(lp loadpoint.API, bat *optimizer.BatteryConfig, 
 	} else {
 		site.log.DEBUG.Printf("plan beyond forecast range or overrun: %.1f at %v slot %d", goal, ts.Round(time.Minute), slot)
 	}
+}
+
+func (site *Site) applyBatterySocGoal(bat *optimizer.BatteryConfig, capacity float64, timestamps []time.Time) {
+	goal := site.GetBatteryOptimizerSocGoal()
+	if goal == nil || len(timestamps) == 0 {
+		return
+	}
+
+	targetTime, err := time.Parse("15:04", site.GetBatteryOptimizerSocGoalTime())
+	if err != nil {
+		site.log.ERROR.Println("optimizer:", err)
+		return
+	}
+
+	goalWh := float32(capacity * *goal * 10)
+
+	if bat.SMin > 0 {
+		goalWh = max(goalWh, bat.SMin)
+	}
+
+	upperLimit := bat.SCapacity
+	if bat.SMax > 0 {
+		upperLimit = bat.SMax
+	}
+	if upperLimit > 0 {
+		goalWh = min(goalWh, upperLimit)
+	}
+
+	if goalWh <= 0 {
+		return
+	}
+
+	loc := time.Local
+	if tz := site.GetBatteryOptimizerSocGoalTimezone(); tz != "" {
+		goalLoc, err := time.LoadLocation(tz)
+		if err != nil {
+			site.log.ERROR.Println("optimizer:", err)
+			return
+		}
+		loc = goalLoc
+	}
+
+	if slots := batterySocGoalSlots(timestamps, loc, targetTime.Hour(), targetTime.Minute(), goalWh); slots != nil {
+		bat.SGoal = slots
+		if bat.SMax == 0 {
+			bat.SMax = upperLimit
+		}
+	}
+}
+
+func batterySocGoalSlots(timestamps []time.Time, loc *time.Location, targetHour, targetMinute int, goal float32) []float32 {
+	if len(timestamps) == 0 {
+		return nil
+	}
+
+	first := timestamps[0].In(loc)
+	target := time.Date(
+		first.Year(),
+		first.Month(),
+		first.Day(),
+		targetHour,
+		targetMinute,
+		0,
+		0,
+		loc,
+	)
+	if target.Before(first) {
+		target = target.AddDate(0, 0, 1)
+	}
+
+	var res []float32
+	for i, ts := range timestamps {
+		if ts.In(loc).Before(target) {
+			continue
+		}
+
+		if res == nil {
+			res = make([]float32, len(timestamps))
+		}
+		res[i] = goal
+		target = target.AddDate(0, 0, 1)
+	}
+
+	return res
 }
 
 // TODO remove once smart cost limit usage becomes obsolete

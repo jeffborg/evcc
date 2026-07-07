@@ -1,6 +1,6 @@
 <template>
 	<div class="mb-5">
-		<div class="chart-container my-3">
+		<div class="chart-container my-3" @mouseleave="emitHoverIndex(null)">
 			<Chart
 				ref="chartRef"
 				type="line"
@@ -35,6 +35,7 @@ import formatter from "@/mixins/formatter";
 import colors from "@/colors";
 import LegendList from "../Sessions/LegendList.vue";
 import type { Legend } from "../Sessions/types";
+import { syncChartTooltip } from "./chartSync";
 
 const tension = 0;
 
@@ -65,11 +66,20 @@ export default defineComponent({
 			type: String,
 			default: "",
 		},
+		gridForecastMissing: {
+			type: Array as PropType<boolean[]>,
+			default: () => [],
+		},
 		currency: {
 			type: String as PropType<CURRENCY>,
 			required: true,
 		},
+		activeIndex: {
+			type: Number as PropType<number | null>,
+			default: null,
+		},
 	},
+	emits: ["hover-index"],
 	computed: {
 		timeLabels(): string[] {
 			const startTime = new Date(this.timestamp);
@@ -111,6 +121,9 @@ export default defineComponent({
 				interaction: {
 					mode: "index",
 					intersect: false,
+				},
+				onHover: (_event, activeElements) => {
+					this.emitHoverIndex(activeElements[0]?.index ?? null);
 				},
 				elements: {
 					point: {
@@ -221,7 +234,21 @@ export default defineComponent({
 				});
 		},
 	},
+	watch: {
+		activeIndex() {
+			this.syncTooltip();
+		},
+	},
 	methods: {
+		getChart() {
+			return (this.$refs["chartRef"] as { chart?: ChartJS } | undefined)?.chart;
+		},
+		emitHoverIndex(index: number | null) {
+			this.$emit("hover-index", index);
+		},
+		syncTooltip() {
+			syncChartTooltip(this.getChart(), this.activeIndex);
+		},
 		getPriceDatasets() {
 			const datasets: any[] = [];
 
@@ -230,9 +257,13 @@ export default defineComponent({
 			const convertPrice = (price: number): number => price * 1000 * factor;
 
 			// Grid Import Price (solid line, price color)
+			// Slots without a real planner tariff are filled with a fallback rate on
+			// the backend; gap those points so the fallback value is not drawn.
 			datasets.push({
 				label: "Import",
-				data: this.evopt.req.time_series.p_N.map(convertPrice),
+				data: this.evopt.req.time_series.p_N.map((price, index) =>
+					this.gridForecastMissing[index] ? null : convertPrice(price)
+				),
 				borderColor: colors.grid,
 				backgroundColor: colors.grid,
 				fill: false,
