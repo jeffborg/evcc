@@ -122,8 +122,26 @@ func (lp *Loadpoint) GetPlan(targetTime time.Time, requiredDuration, preconditio
 	return lp.planner.Plan(requiredDuration, precondition, targetTime, continuous)
 }
 
-// plannerActive checks if the charging plan has a currently active slot
-func (lp *Loadpoint) plannerActive() (active bool) {
+// plannerRateGap reports whether the planner tariff is defined but has no rate
+// slot covering t - e.g. a demand window intentionally left undefined. It only
+// considers interior gaps (t within the published horizon); it returns false
+// when no dynamic rates exist (static / no tariff) or t lies beyond the last
+// published slot, so those keep the default overrun behavior.
+func plannerRateGap(rates api.Rates, t time.Time) bool {
+	if len(rates) == 0 {
+		return false
+	}
+	if t.Before(rates[0].Start) || !t.Before(rates[len(rates)-1].End) {
+		return false
+	}
+	_, err := rates.At(t)
+	return err != nil
+}
+
+// plannerActive checks if the charging plan has a currently active slot.
+// rates are the planner tariff rates, used to detect overrun into an
+// undefined-tariff (demand) window.
+func (lp *Loadpoint) plannerActive(rates api.Rates) (active bool) {
 	defer func() {
 		lp.setPlanActive(active)
 	}()
@@ -220,6 +238,12 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 	} else if lp.planActive {
 		// planner was active (any slot, not necessarily previous slot) and charge goal has not yet been met
 		switch {
+		case lp.clock.Now().After(planTime) && !planTime.IsZero() && plannerRateGap(rates, lp.clock.Now()):
+			// overrun into a window with no defined planner tariff rate (e.g. a demand
+			// window intentionally left undefined) - abort instead of charging through it
+			lp.log.DEBUG.Println("plan: overrun into undefined tariff window- aborting plan")
+			lp.finishPlan()
+			return false
 		case lp.clock.Now().After(planTime) && !planTime.IsZero():
 			// if the plan did not (entirely) work, we may still be charging beyond plan end- in that case, continue charging
 			// TODO check when schedule is implemented
