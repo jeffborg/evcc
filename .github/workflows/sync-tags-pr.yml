@@ -6,6 +6,11 @@ on:
       - closed
   workflow_dispatch: # Allows manual trigger of the workflow
 
+# Least privilege: tag pushes authenticate with EVCC_PAT (set via checkout),
+# so the default GITHUB_TOKEN only needs read access.
+permissions:
+  contents: read
+
 jobs:
   finalize:
     if: github.event.pull_request.merged == true
@@ -25,13 +30,16 @@ jobs:
 
       - name: Get merged branch name
         id: get-branch
-        run: echo "BRANCH=${{ github.event.pull_request.base.ref }}" >> $GITHUB_ENV
+        # Pass the ref through env to avoid shell injection from branch names.
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: echo "BRANCH=$BASE_REF" >> "$GITHUB_ENV"
 
       - name: Validate branch name
         id: validate-branch
         run: |
           # Extract the tag name from the branch name
-          TAG_NAME=$(echo "${{ env.BRANCH }}" | sed 's/tag-//')
+          TAG_NAME=$(echo "$BRANCH" | sed 's/tag-//')
 
           # Check if the tag name matches the expected pattern
           if [[ ! "$TAG_NAME" =~ ^0\.[0-9]+\.[0-9]+$ ]]; then
@@ -47,7 +55,7 @@ jobs:
         if: success() && steps.validate-branch.outcome == 'success'
         run: |
           # Checkout the branch that was merged
-          git checkout "${{ env.BRANCH }}"
+          git checkout "$BRANCH"
 
           # Base version derived from the tag branch, e.g. 0.311.0
           BASE="${{ steps.validate-branch.outputs.BRANCH }}"
