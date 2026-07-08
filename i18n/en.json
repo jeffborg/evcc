@@ -83,6 +83,18 @@
     "legendTopSublineDisabledState": "disabled",
     "modalTitle": "Home Battery",
     "noBattery": "No batteries configured.",
+    "optimizerDischargeToGrid": "Allow optimizer to discharge to grid.",
+    "optimizerPA": {
+      "enable": "Use a manual p_a value for the optimizer.",
+      "hint": "When disabled, p_a is calculated automatically. When enabled, the value below is used instead.",
+      "value": "p_a value"
+    },
+    "optimizerSocGoal": {
+      "enable": "Keep a daily reserve target for the optimizer.",
+      "hint": "Applies a daily home-battery SoC goal to the optimizer at the selected local time.",
+      "soc": "Reserve target",
+      "time": "Time"
+    },
     "usageTab": "Battery usage"
   },
   "colors": {

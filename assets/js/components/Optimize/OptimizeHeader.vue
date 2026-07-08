@@ -37,6 +37,22 @@
 						>
 					</CustomSelect>
 				</div>
+				<div class="field-extra form-check form-switch mt-2 mb-0">
+					<input
+						id="optimizerDischargeToGrid"
+						:checked="dischargeToGrid"
+						class="form-check-input"
+						type="checkbox"
+						role="switch"
+						@change="onDischargeChange"
+					/>
+					<label
+						class="form-check-label small text-lowercase evcc-gray"
+						for="optimizerDischargeToGrid"
+					>
+						discharge to grid
+					</label>
+				</div>
 			</div>
 
 			<!-- Result -->
@@ -154,9 +170,10 @@ export default defineComponent({
 		currency: { type: String as PropType<CURRENCY>, default: CURRENCY.EUR },
 		chargingStrategies: { type: Array as PropType<string[]>, default: () => [] },
 		selectedStrategy: { type: String, default: "" },
+		dischargeToGrid: { type: Boolean, default: false },
 		pending: { type: Boolean, default: false },
 	},
-	emits: ["optimize", "change-strategy"],
+	emits: ["optimize", "change-strategy", "change-discharge-to-grid"],
 	data() {
 		return {
 			tooltips: [] as Tooltip[],
@@ -206,6 +223,9 @@ export default defineComponent({
 		onStrategyChange(e: Event) {
 			this.$emit("change-strategy", (e.target as HTMLSelectElement).value);
 		},
+		onDischargeChange(e: Event) {
+			this.$emit("change-discharge-to-grid", (e.target as HTMLInputElement).checked);
+		},
 		initTooltips() {
 			const items: [Element | undefined, string][] = [
 				[this.$refs["statusInfo"] as Element | undefined, STATUS_TOOLTIP],
@@ -245,14 +265,19 @@ export default defineComponent({
 /* small: each field a full-width row (Bootstrap col-12), label left, value right */
 .field {
 	display: flex;
+	flex-wrap: wrap;
 	justify-content: space-between;
 	align-items: center;
 	gap: 1rem;
 	padding: 0.75rem 0;
 	border-top: 1px solid var(--evcc-gray-25);
 }
-/* card provides the outer boundary */
-.field:first-child {
+/* discharge toggle: always render last, on its own full-width line */
+.field-extra {
+	order: 3;
+	width: 100%;
+}
+.field:last-child {
 	border-top: none;
 }
 .field-head {
@@ -292,6 +317,7 @@ export default defineComponent({
 @media (min-width: 768px) {
 	.field {
 		flex-direction: column;
+		flex-wrap: nowrap;
 		justify-content: flex-start;
 		align-items: flex-start;
 		gap: 0;

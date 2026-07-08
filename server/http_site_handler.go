@@ -184,6 +184,43 @@ func updateSmartCostLimit(site site.API, setLimit func(loadpoint.API, *float64))
 	}
 }
 
+// newBatteryOptimizerSocGoal allocates the goal value at package scope, where
+// the site type is reachable (the handlers' `site` param shadows the package).
+func newBatteryOptimizerSocGoal() *site.BatteryOptimizerSocGoal {
+	return new(site.BatteryOptimizerSocGoal)
+}
+
+func batteryOptimizerSocGoalHandler(site site.API) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// soc/time/tz map onto the goal's json tags; the value is stored and
+		// applied atomically so time and timezone can never desync
+		goal := newBatteryOptimizerSocGoal()
+		if err := jsonDecoder(r.Body).Decode(goal); err != nil {
+			jsonError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		// the setter validates soc, time and timezone together
+		if err := site.SetBatteryOptimizerSocGoal(goal); err != nil {
+			jsonError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		jsonWrite(w, goal)
+	}
+}
+
+func batteryOptimizerSocGoalDeleteHandler(site site.API) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := site.SetBatteryOptimizerSocGoal(nil); err != nil {
+			jsonError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		jsonWrite(w, site.GetBatteryOptimizerSocGoal())
+	}
+}
+
 // updateBatteryMode sets the external battery mode
 func updateBatteryMode(site site.API) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
