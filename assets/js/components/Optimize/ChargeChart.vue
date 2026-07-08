@@ -1,5 +1,5 @@
 <template>
-	<div class="mb-5">
+	<div>
 		<div class="chart-container my-3" @mouseleave="emitHoverIndex(null)">
 			<Chart
 				ref="chartRef"
