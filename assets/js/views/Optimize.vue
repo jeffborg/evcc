@@ -2,20 +2,20 @@
 	<div class="container px-4 safe-area-inset">
 		<TopHeader title="Optimize Debug 🧪" />
 		<Card edge-to-edge class="box-pull-out mt-4 mb-4">
-      <OptimizeHeader
-        :updated="evopt?.updated"
-        :status="evopt?.res?.status"
-        :net-cost="netCost"
-        :horizon-hours="horizonHours"
-        :currency="currency"
-        :charging-strategies="chargingStrategies"
-        :selected-strategy="optimizerChargingStrategy"
-        :discharge-to-grid="optimizerDischargeToGrid"
-        :pending="pending"
-        @optimize="optimizeNow"
-        @change-strategy="changeChargingStrategy"
-        @change-discharge-to-grid="changeDischargeToGrid"
-      />
+			<OptimizeHeader
+				:updated="evopt?.updated"
+				:status="evopt?.res?.status"
+				:net-cost="netCost"
+				:horizon-hours="horizonHours"
+				:currency="currency"
+				:charging-strategies="chargingStrategies"
+				:selected-strategy="optimizerChargingStrategy"
+				:discharge-to-grid="optimizerDischargeToGrid"
+				:pending="pending"
+				@optimize="optimizeNow"
+				@change-strategy="changeChargingStrategy"
+				@change-discharge-to-grid="changeDischargeToGrid"
+			/>
 		</Card>
 		<div class="row">
 			<main class="col-12">
