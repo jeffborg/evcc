@@ -258,7 +258,7 @@ jobs:
         timeout-minutes: 5
 
       - name: Run tests
-        run: npx playwright test
+        run: npx playwright test --workers=4
         timeout-minutes: 20
         env:
           TZ: Europe/Berlin
