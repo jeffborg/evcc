@@ -6,6 +6,13 @@ on:
     - cron: "0 20 * * *"
   workflow_dispatch: # Allows manual trigger
 
+# Least privilege: branch/tag pushes authenticate with EVCC_PAT (set via
+# checkout); GITHUB_TOKEN is used only by `gh pr create`, which needs
+# pull-requests: write.
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   sync:
     runs-on: ubuntu-latest
