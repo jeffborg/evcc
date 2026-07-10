@@ -163,7 +163,7 @@ func (site *Site) solarDetails(solar api.Rates) solarDetails {
 // energy for the current day, queried from the metrics database. Used to
 // adjust forecasts when PV is consistently under-/over-producing relative
 // to the forecast. Returns 1.0 when not enough data is available to make
-// the ratio meaningful, or when the ratio falls outside [0.8, 1.2] (an
+// the ratio meaningful, or when the ratio falls outside [0.8, 1.5] (an
 // implausible correction, typically from partial-day data).
 func (site *Site) solarScale() float64 {
 	series, err := metrics.QueryEnergy(now.BeginningOfDay(), time.Now(), "day", true)
@@ -194,7 +194,7 @@ func (site *Site) solarScale() float64 {
 	site.log.DEBUG.Printf("solar forecast: produced %.3fkWh, forecasted %.3fkWh, scale %.3f", pv, fcst, scale)
 
 	// ignore implausible scale factors from partial-day data
-	if scale < 0.8 || scale > 1.2 {
+	if scale < 0.8 || scale > 1.5 {
 		return 1
 	}
 
