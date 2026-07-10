@@ -16,25 +16,13 @@ jobs:
       contents: read
       actions: write
 
-  release:
-    name: Create GitHub Release
-    needs:
-      - docker
+  # Build and push the multi-arch image up front, in parallel with the test
+  # suite, under a neutral sha-<sha> tag - NOT the release/latest tags. The
+  # image is only promoted to the release tags once every job has succeeded
+  # (see the docker job), so a failing test never publishes a release image.
+  docker-build:
+    name: Build Docker image
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-
-    steps:
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-
-  docker:
-    name: Publish Docker :release
-    needs:
-      - call-build-workflow
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -56,14 +44,7 @@ jobs:
       - name: Setup Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
-      - name: Meta
-        id: meta
-        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6
-        with:
-          images: |
-            ghcr.io/jeffborg/evcc
-
-      - name: Publish
+      - name: Build and push (staging tag)
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: .
@@ -71,4 +52,56 @@ jobs:
           push: true
           build-args: |
             RELEASE=1
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ghcr.io/jeffborg/evcc:sha-${{ github.sha }}
+
+  # Promote the pre-built image to the release tags. This is a fast manifest
+  # copy (no rebuild) and only runs once BOTH the full test suite and the
+  # image build have succeeded.
+  docker:
+    name: Publish Docker :release
+    needs:
+      - call-build-workflow
+      - docker-build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Login
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Meta
+        id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6
+        with:
+          images: |
+            ghcr.io/jeffborg/evcc
+
+      - name: Promote staging image to release tags
+        run: |
+          # copy the already-built multi-arch manifest to every release tag
+          args=$(echo "${{ steps.meta.outputs.tags }}" | sed 's/^/--tag /' | tr '\n' ' ')
+          docker buildx imagetools create $args ghcr.io/jeffborg/evcc:sha-${{ github.sha }}
+
+  release:
+    name: Create GitHub Release
+    needs:
+      - docker
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
