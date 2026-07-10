@@ -17,8 +17,8 @@ jobs:
       actions: write
 
   # Build and push the multi-arch image up front, in parallel with the test
-  # suite, under a neutral sha-<sha> tag - NOT the release/latest tags. The
-  # image is only promoted to the release tags once every job has succeeded
+  # suite. It is pushed by digest only (untagged) - NOT the release/latest
+  # tags - and only promoted to the release tags once every job has succeeded
   # (see the docker job), so a failing test never publishes a release image.
   docker-build:
     name: Build Docker image
@@ -27,6 +27,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
 
     steps:
       - uses: actions/checkout@v7
@@ -44,15 +46,15 @@ jobs:
       - name: Setup Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
-      - name: Build and push (staging tag)
+      - name: Build and push by digest (untagged)
+        id: build
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v6
-          push: true
           build-args: |
             RELEASE=1
-          tags: ghcr.io/jeffborg/evcc:sha-${{ github.sha }}
+          outputs: type=image,name=ghcr.io/jeffborg/evcc,push-by-digest=true,push=true
 
   # Promote the pre-built image to the release tags. This is a fast manifest
   # copy (no rebuild) and only runs once BOTH the full test suite and the
@@ -85,11 +87,40 @@ jobs:
           images: |
             ghcr.io/jeffborg/evcc
 
-      - name: Promote staging image to release tags
+      - name: Promote image to release tags
         run: |
-          # copy the already-built multi-arch manifest to every release tag
+          # copy the already-built multi-arch manifest (by digest) to every release tag
           args=$(echo "${{ steps.meta.outputs.tags }}" | sed 's/^/--tag /' | tr '\n' ' ')
-          docker buildx imagetools create $args ghcr.io/jeffborg/evcc:sha-${{ github.sha }}
+          docker buildx imagetools create $args ghcr.io/jeffborg/evcc@${{ needs.docker-build.outputs.digest }}
+
+  # Clean up the pre-built image if it never got promoted (i.e. a test failed),
+  # so failed releases don't leave an orphaned untagged image in the registry.
+  # On success the digest is tagged as a release and is left untouched.
+  cleanup:
+    name: Cleanup unpromoted image
+    needs:
+      - docker-build
+      - docker
+    if: always() && needs.docker-build.result == 'success' && needs.docker.result != 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write
+
+    steps:
+      - name: Delete unpromoted image digest
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIGEST: ${{ needs.docker-build.outputs.digest }}
+        run: |
+          id=$(gh api --paginate "/users/jeffborg/packages/container/evcc/versions" \
+            --jq ".[] | select(.name == env.DIGEST) | .id")
+          if [ -n "$id" ]; then
+            gh api --method DELETE "/users/jeffborg/packages/container/evcc/versions/$id"
+            echo "deleted unpromoted image $DIGEST (version $id)"
+          else
+            echo "no untagged version found for $DIGEST- nothing to clean up"
+          fi
 
   release:
     name: Create GitHub Release
