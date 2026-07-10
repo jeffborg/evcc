@@ -123,15 +123,19 @@ func (lp *Loadpoint) GetPlan(targetTime time.Time, requiredDuration, preconditio
 }
 
 // plannerRateGap reports whether the planner tariff is defined but has no rate
-// slot covering t - e.g. a demand window intentionally left undefined. It only
-// considers interior gaps (t within the published horizon); it returns false
-// when no dynamic rates exist (static / no tariff) or t lies beyond the last
-// published slot, so those keep the default overrun behavior.
+// slot covering t - e.g. a demand window intentionally left undefined. Planner
+// rates are forward-pruned (slots before the current period are dropped), so a
+// t before the first published slot means the current period itself is
+// undefined - a leading demand-window gap - and counts as a gap. Only t beyond
+// the last published slot is excluded (the not-yet-published horizon), so
+// static/no-tariff setups and the region past the horizon keep the default
+// overrun behavior.
 func plannerRateGap(rates api.Rates, t time.Time) bool {
 	if len(rates) == 0 {
 		return false
 	}
-	if t.Before(rates[0].Start) || !t.Before(rates[len(rates)-1].End) {
+	// beyond the published horizon we have no data - keep the overrun behavior
+	if !t.Before(rates[len(rates)-1].End) {
 		return false
 	}
 	_, err := rates.At(t)
