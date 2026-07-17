@@ -431,6 +431,27 @@ func (site *Site) SetOptimizerManualPA(val *float64) error {
 	return nil
 }
 
+// GetSolarAdjusted returns if the solar forecast is adjusted to real production data
+func (site *Site) GetSolarAdjusted() bool {
+	site.RLock()
+	defer site.RUnlock()
+	return site.solarAdjusted
+}
+
+// SetSolarAdjusted sets if the solar forecast is adjusted to real production data
+func (site *Site) SetSolarAdjusted(val bool) {
+	site.log.DEBUG.Println("set solar adjusted:", val)
+
+	site.Lock()
+	defer site.Unlock()
+
+	if site.solarAdjusted != val {
+		site.solarAdjusted = val
+		settings.SetBool(keys.SolarAdjusted, val)
+		site.publish(keys.SolarAdjusted, val)
+	}
+}
+
 func (site *Site) GetBatteryGridChargeLimit() *float64 {
 	site.RLock()
 	defer site.RUnlock()
