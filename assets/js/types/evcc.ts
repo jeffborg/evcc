@@ -71,6 +71,14 @@ export interface StatisticsData {
 
 export type Statistics = Record<StatisticsPeriod, StatisticsData>;
 
+// daily optimizer reserve goal: keep the battery at soc by time each day.
+// time and tz are stored together so the wall-clock time keeps its timezone.
+export interface BatteryOptimizerSocGoal {
+  soc: number; // target soc, 1..100
+  time: string; // HH:MM local wall-clock
+  tz: string; // IANA timezone
+}
+
 export interface State {
   offline: boolean;
   telemetry?: boolean;
@@ -117,8 +125,11 @@ export interface State {
   prioritySoc?: number;
   bufferStartSoc?: number;
   batteryDischargeControl?: boolean;
+  optimizerDischargeToGrid?: boolean;
+  optimizerManualPA?: number | null;
   solarAdjusted?: boolean;
   batteryGridChargeLimit?: number | null;
+  batteryOptimizerSocGoal?: BatteryOptimizerSocGoal | null;
   smartCostAvailable?: boolean;
   smartCostType?: SMART_COST_TYPE;
   historyUpdated?: string; // ISO timestamp, bumped each 15min metrics persist
@@ -868,6 +879,7 @@ export interface BatteryDetail {
 export interface OptimizationDetails {
   timestamp: string[]; // Array of ISO timestamp strings
   batteryDetails: BatteryDetail[]; // Array of battery detail objects
+  gridForecastMissing?: boolean[]; // Per-slot flag: grid price filled with fallback rate
 }
 
 // Error response

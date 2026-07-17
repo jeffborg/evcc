@@ -370,6 +370,67 @@ func (site *Site) SetBatteryDischargeControl(val bool) error {
 	return nil
 }
 
+func (site *Site) GetOptimizerDischargeToGrid() bool {
+	site.RLock()
+	defer site.RUnlock()
+	return site.optimizerDischargeToGrid
+}
+
+func (site *Site) SetOptimizerDischargeToGrid(val bool) error {
+	site.log.DEBUG.Println("set optimizer discharge to grid:", val)
+
+	var changed bool
+
+	site.Lock()
+	if site.optimizerDischargeToGrid != val {
+		site.optimizerDischargeToGrid = val
+		settings.SetBool(keys.OptimizerDischargeToGrid, val)
+		site.publish(keys.OptimizerDischargeToGrid, val)
+		changed = true
+	}
+	site.Unlock()
+
+	if changed {
+		site.triggerOptimizer()
+	}
+
+	return nil
+}
+
+func (site *Site) GetOptimizerManualPA() *float64 {
+	site.RLock()
+	defer site.RUnlock()
+	return site.optimizerManualPA
+}
+
+func (site *Site) SetOptimizerManualPA(val *float64) error {
+	site.log.DEBUG.Println("set optimizer manual p_a:", printPtr("%.3f", val))
+
+	var changed bool
+
+	site.Lock()
+	if !ptrValueEqual(site.optimizerManualPA, val) {
+		site.optimizerManualPA = val
+
+		if val == nil {
+			settings.SetString(keys.OptimizerManualPA, "")
+			site.publish(keys.OptimizerManualPA, nil)
+		} else {
+			settings.SetFloat(keys.OptimizerManualPA, *val)
+			site.publish(keys.OptimizerManualPA, *val)
+		}
+
+		changed = true
+	}
+	site.Unlock()
+
+	if changed {
+		site.triggerOptimizer()
+	}
+
+	return nil
+}
+
 // GetSolarAdjusted returns if the solar forecast is adjusted to real production data
 func (site *Site) GetSolarAdjusted() bool {
 	site.RLock()
@@ -420,6 +481,77 @@ func (site *Site) SetBatteryGridChargeLimit(val *float64) error {
 	}
 
 	return nil
+}
+
+func (site *Site) GetBatteryOptimizerSocGoal() *site.BatteryOptimizerSocGoal {
+	site.RLock()
+	defer site.RUnlock()
+	return site.batteryOptimizerSocGoal
+}
+
+func (site *Site) SetBatteryOptimizerSocGoal(val *site.BatteryOptimizerSocGoal) error {
+	site.log.DEBUG.Printf("set battery optimizer soc goal: %+v", val)
+
+	if !site.hasBatteryControl() {
+		return ErrBatteryControlNotAvailable
+	}
+
+	if val != nil {
+		if val.Soc <= 0 || val.Soc > 100 {
+			return errors.New("battery optimizer soc goal must be greater than 0 and at most 100")
+		}
+		if _, err := time.Parse("15:04", val.Time); err != nil {
+			return errors.New("battery optimizer soc goal time must use HH:MM format")
+		}
+		// the time is meaningless without its zone, so require an explicit one
+		if val.Tz == "" {
+			return errors.New("battery optimizer soc goal timezone is required")
+		}
+		if _, err := time.LoadLocation(val.Tz); err != nil {
+			return errors.New("battery optimizer soc goal timezone must be a valid IANA timezone")
+		}
+	}
+
+	var changed bool
+
+	site.Lock()
+	if !batteryOptimizerSocGoalEqual(site.batteryOptimizerSocGoal, val) {
+		site.batteryOptimizerSocGoal = val
+
+		if val == nil {
+			settings.SetString(keys.BatteryOptimizerSocGoal, "")
+		} else if err := settings.SetJson(keys.BatteryOptimizerSocGoal, val); err != nil {
+			site.log.ERROR.Printf("battery optimizer soc goal: %v", err)
+		}
+		site.publish(keys.BatteryOptimizerSocGoal, val)
+
+		changed = true
+	}
+	site.Unlock()
+
+	if changed {
+		site.triggerOptimizer()
+	}
+
+	return nil
+}
+
+// batteryOptimizerSocGoalEqual compares two goals by value (nil-safe).
+func batteryOptimizerSocGoalEqual(a, b *site.BatteryOptimizerSocGoal) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+// loadBatteryOptimizerSocGoal reads the persisted goal; returns (nil, err) when
+// absent or malformed so callers can simply skip it.
+func loadBatteryOptimizerSocGoal() (*site.BatteryOptimizerSocGoal, error) {
+	var goal site.BatteryOptimizerSocGoal
+	if err := settings.Json(keys.BatteryOptimizerSocGoal, &goal); err != nil {
+		return nil, err
+	}
+	return &goal, nil
 }
 
 // GetOptimizerChargingStrategy returns the optimizer grid charging strategy,
