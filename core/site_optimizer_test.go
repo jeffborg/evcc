@@ -6,7 +6,9 @@ import (
 
 	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/core/loadpoint"
+	"github.com/evcc-io/evcc/core/site"
 	"github.com/evcc-io/evcc/core/types"
+	"github.com/evcc-io/evcc/tariff"
 	"github.com/evcc-io/evcc/util"
 	"github.com/evcc-io/evcc/util/config"
 	optimizer "github.com/evcc-io/optimizer/client"
@@ -203,7 +205,7 @@ func TestBatteryRequestSocLimitsClamp(t *testing.T) {
 		dev := newBatteryDevice(t, 20, 100)
 		m := types.Measurement{Capacity: &capacity, Soc: &soc}
 
-		req, _ := site.batteryRequest(dev, m, nil, 8, 15*time.Minute)
+		req, _ := site.batteryRequest(dev, m, nil, 8, 15*time.Minute, nil)
 
 		assert.Equal(t, float32(1500), req.SMin)
 		assert.Equal(t, float32(10000), req.SMax)
@@ -215,7 +217,7 @@ func TestBatteryRequestSocLimitsClamp(t *testing.T) {
 		dev := newBatteryDevice(t, 0, 80)
 		m := types.Measurement{Capacity: &capacity, Soc: &soc}
 
-		req, _ := site.batteryRequest(dev, m, nil, 8, 15*time.Minute)
+		req, _ := site.batteryRequest(dev, m, nil, 8, 15*time.Minute, nil)
 
 		assert.Equal(t, float32(0), req.SMin)
 		assert.Equal(t, float32(9500), req.SMax)
@@ -227,7 +229,7 @@ func TestBatteryRequestSocLimitsClamp(t *testing.T) {
 		dev := newBatteryDevice(t, 20, 80)
 		m := types.Measurement{Capacity: &capacity, Soc: &soc}
 
-		req, _ := site.batteryRequest(dev, m, nil, 8, 15*time.Minute)
+		req, _ := site.batteryRequest(dev, m, nil, 8, 15*time.Minute, nil)
 
 		assert.Equal(t, float32(2000), req.SMin)
 		assert.Equal(t, float32(8000), req.SMax)
@@ -238,7 +240,7 @@ func TestBatteryRequestSocLimitsClamp(t *testing.T) {
 		dev := newBatteryDevice(t, 20, 0)
 		m := types.Measurement{Capacity: &capacity, Soc: &soc}
 
-		req, _ := site.batteryRequest(dev, m, nil, 8, 15*time.Minute)
+		req, _ := site.batteryRequest(dev, m, nil, 8, 15*time.Minute, nil)
 
 		assert.Equal(t, float32(2000), req.SMin)
 		assert.Equal(t, float32(10000), req.SMax)
@@ -258,6 +260,192 @@ func TestOptimizerChargingStrategy(t *testing.T) {
 	// valid change is applied (re-trigger is gated on sponsor/enabled, not unit-tested here)
 	require.NoError(t, site.SetOptimizerChargingStrategy(string(optimizer.OptimizerStrategyChargingStrategyAttenuateGridPeaks)))
 	assert.Equal(t, "attenuate_grid_peaks", site.GetOptimizerChargingStrategy())
+}
+
+func TestFillMissingRateSlots(t *testing.T) {
+	now := time.Now().Truncate(tariff.SlotDuration)
+
+	rates := api.Rates{
+		{Start: now, End: now.Add(tariff.SlotDuration), Value: 1},
+		{Start: now.Add(2 * tariff.SlotDuration), End: now.Add(3 * tariff.SlotDuration), Value: 3},
+	}
+
+	got, _ := fillMissingRateSlots(rates, 4, plannerRateFallback)
+
+	require.Len(t, got, 4)
+	assert.Equal(t, []float64{1, plannerRateFallback, 3, plannerRateFallback}, []float64{
+		got[0].Value,
+		got[1].Value,
+		got[2].Value,
+		got[3].Value,
+	})
+}
+
+func TestRateHorizonSlotsIgnoresMissingPlannerSlots(t *testing.T) {
+	now := time.Now().Truncate(tariff.SlotDuration)
+
+	rates := api.Rates{
+		{Start: now, End: now.Add(tariff.SlotDuration), Value: 1},
+		{Start: now.Add(2 * tariff.SlotDuration), End: now.Add(3 * tariff.SlotDuration), Value: 3},
+		{Start: now.Add(95 * tariff.SlotDuration), End: now.Add(96 * tariff.SlotDuration), Value: 96},
+	}
+
+	assert.Equal(t, 96, rateHorizonSlots(rates))
+}
+
+func TestBatteryRequestDischargeToGrid(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	site := &Site{optimizerDischargeToGrid: true}
+	var meter api.Meter = &struct {
+		api.Meter
+		api.BatteryController
+	}{
+		BatteryController: api.NewMockBatteryController(ctrl),
+	}
+	capacity := 10.0
+	soc := 50.0
+
+	bat, _ := site.batteryRequest(config.NewStaticDevice(config.Named{Name: "battery1"}, meter), types.Measurement{
+		Soc:      &soc,
+		Capacity: &capacity,
+	}, nil, 0, 0, nil)
+
+	assert.True(t, bat.DischargeToGrid)
+}
+
+func TestOptimizerPA(t *testing.T) {
+	t.Run("automatic", func(t *testing.T) {
+		site := new(Site)
+		assert.InDelta(t, 0.0891, site.optimizerPA([]float32{0.25, 0.10}), 1e-6)
+	})
+
+	t.Run("manual override", func(t *testing.T) {
+		manual := 0.33
+		site := &Site{optimizerManualPA: &manual}
+		assert.InDelta(t, 0.00033, site.optimizerPA([]float32{0.25, 0.10}), 1e-9)
+	})
+}
+
+func TestBatterySocGoalSlots(t *testing.T) {
+	loc := time.UTC
+
+	timestamps := []time.Time{
+		time.Date(2025, 1, 1, 20, 30, 0, 0, loc),
+		time.Date(2025, 1, 1, 20, 45, 0, 0, loc),
+		time.Date(2025, 1, 1, 21, 0, 0, 0, loc),
+		time.Date(2025, 1, 1, 21, 15, 0, 0, loc),
+		time.Date(2025, 1, 2, 20, 45, 0, 0, loc),
+		time.Date(2025, 1, 2, 21, 0, 0, 0, loc),
+	}
+
+	assert.Equal(t, []float32{0, 0, 2000, 0, 0, 2000}, batterySocGoalSlots(timestamps, loc, 21, 0, 2000))
+}
+
+func TestBatterySocGoalSlotsRollsToNextDay(t *testing.T) {
+	loc := time.UTC
+
+	timestamps := []time.Time{
+		time.Date(2025, 1, 1, 21, 5, 0, 0, loc),
+		time.Date(2025, 1, 2, 20, 45, 0, 0, loc),
+		time.Date(2025, 1, 2, 21, 15, 0, 0, loc),
+	}
+
+	assert.Equal(t, []float32{0, 0, 1500}, batterySocGoalSlots(timestamps, loc, 21, 0, 1500))
+}
+
+func TestBatterySocGoalSlotsTimezone(t *testing.T) {
+	loc := time.FixedZone("MST", -7*60*60)
+
+	timestamps := []time.Time{
+		time.Date(2025, 1, 2, 3, 45, 0, 0, time.UTC),
+		time.Date(2025, 1, 2, 4, 0, 0, 0, time.UTC),
+		time.Date(2025, 1, 2, 4, 15, 0, 0, time.UTC),
+	}
+
+	assert.Equal(t, []float32{0, 2500, 0}, batterySocGoalSlots(timestamps, loc, 21, 0, 2500))
+}
+
+func batterySocGoalMeter(ctrl *gomock.Controller) api.Meter {
+	return &struct {
+		api.Meter
+		api.BatteryController
+	}{
+		BatteryController: api.NewMockBatteryController(ctrl),
+	}
+}
+
+func TestBatteryRequestSocGoal(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	s := &Site{
+		batteryOptimizerSocGoal: &site.BatteryOptimizerSocGoal{Soc: 20, Time: "21:00", Tz: "UTC"},
+	}
+	capacity := 10.0
+	soc := 50.0
+	timestamps := []time.Time{
+		time.Date(2025, 1, 1, 20, 30, 0, 0, time.UTC),
+		time.Date(2025, 1, 1, 20, 45, 0, 0, time.UTC),
+		time.Date(2025, 1, 1, 21, 0, 0, 0, time.UTC),
+	}
+
+	bat, _ := s.batteryRequest(config.NewStaticDevice(config.Named{Name: "battery1"}, batterySocGoalMeter(ctrl)), types.Measurement{
+		Soc:      &soc,
+		Capacity: &capacity,
+	}, nil, len(timestamps), 0, timestamps)
+
+	assert.Equal(t, []float32{0, 0, 2000}, bat.SGoal)
+	assert.Equal(t, float32(10000), bat.SMax)
+}
+
+// TestBatteryRequestSocGoalTimezone proves the goal time is interpreted in the
+// goal's own timezone, not the server's local zone (the reported wrong-slot bug).
+// 21:00 America/New_York (EST, UTC-5) is 02:00 UTC the next day.
+func TestBatteryRequestSocGoalTimezone(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	s := &Site{
+		batteryOptimizerSocGoal: &site.BatteryOptimizerSocGoal{Soc: 20, Time: "21:00", Tz: "America/New_York"},
+	}
+	capacity := 10.0
+	soc := 50.0
+	timestamps := []time.Time{
+		time.Date(2025, 1, 3, 1, 45, 0, 0, time.UTC),
+		time.Date(2025, 1, 3, 2, 0, 0, 0, time.UTC),
+		time.Date(2025, 1, 3, 2, 15, 0, 0, time.UTC),
+	}
+
+	bat, _ := s.batteryRequest(config.NewStaticDevice(config.Named{Name: "battery1"}, batterySocGoalMeter(ctrl)), types.Measurement{
+		Soc:      &soc,
+		Capacity: &capacity,
+	}, nil, len(timestamps), 0, timestamps)
+
+	assert.Equal(t, []float32{0, 2000, 0}, bat.SGoal)
+}
+
+// TestBatteryRequestSocGoalInvalidTimezone asserts an unusable timezone skips the
+// goal entirely rather than silently misplacing it via the server's local zone.
+func TestBatteryRequestSocGoalInvalidTimezone(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	s := &Site{
+		log:                     util.NewLogger("foo"),
+		batteryOptimizerSocGoal: &site.BatteryOptimizerSocGoal{Soc: 20, Time: "21:00", Tz: "Not/AZone"},
+	}
+	capacity := 10.0
+	soc := 50.0
+	timestamps := []time.Time{
+		time.Date(2025, 1, 1, 20, 30, 0, 0, time.UTC),
+		time.Date(2025, 1, 1, 20, 45, 0, 0, time.UTC),
+		time.Date(2025, 1, 1, 21, 0, 0, 0, time.UTC),
+	}
+
+	bat, _ := s.batteryRequest(config.NewStaticDevice(config.Named{Name: "battery1"}, batterySocGoalMeter(ctrl)), types.Measurement{
+		Soc:      &soc,
+		Capacity: &capacity,
+	}, nil, len(timestamps), 0, timestamps)
+
+	assert.Nil(t, bat.SGoal)
 }
 
 func TestCurrentSlotSuggestion(t *testing.T) {
