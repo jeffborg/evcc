@@ -46,7 +46,6 @@ const (
 	OptimizerDischargeToGrid = "optimizerDischargeToGrid"
 	OptimizerManualPA        = "optimizerManualPA"
 	BatteryGridChargeLimit   = "batteryGridChargeLimit"
-	BatteryOptimizerSocGoal  = "batteryOptimizerSocGoal"  // deprecated: legacy single goal, read only for migration
 	BatteryOptimizerSocGoals = "batteryOptimizerSocGoals" // recurring optimizer reserve goals
 	BatteryGridChargeActive  = "batteryGridChargeActive"
 	BufferSoc                = "bufferSoc"
