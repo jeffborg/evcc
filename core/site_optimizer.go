@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/evcc-io/evcc/api"
@@ -35,6 +36,7 @@ var (
 
 	mu               sync.Mutex
 	optimizerUpdated time.Time
+	optimizerPending atomic.Bool // a trigger arrived while a run held the lock; re-run afterwards
 )
 
 // optimizerChargingStrategies are the valid grid charging strategies; the first
@@ -49,19 +51,29 @@ const defaultOptimizerChargingStrategy = string(optimizer.OptimizerStrategyCharg
 
 // triggerOptimizer re-runs the optimizer immediately so a changed setting takes
 // effect without waiting for the next slot. It is a no-op when the optimizer is
-// not active or a run is already in progress; the running update reflects the
-// change on its next slot.
+// not active. When a run is already in progress the trigger is not lost: a
+// pending flag is set and optimizerUpdateAsync re-runs once the current run
+// finishes, so the change is never left waiting for the next scheduled cycle.
 func (site *Site) triggerOptimizer() {
 	if !sponsor.IsAuthorized() || !optimizerEnabled() {
 		return
 	}
 	if !mu.TryLock() {
+		optimizerPending.Store(true) // run in progress: re-run after it (see optimizerUpdateAsync)
 		return
 	}
 	optimizerUpdated = time.Time{} // bypass the slot/debounce gate
 	mu.Unlock()
 
 	go site.optimizerUpdateAsync()
+}
+
+// rerunIfPending re-triggers the optimizer when a trigger arrived during a run.
+// Called after optimizerUpdateAsync releases the lock so the re-run can proceed.
+func (site *Site) rerunIfPending() {
+	if optimizerPending.Swap(false) {
+		site.triggerOptimizer()
+	}
 }
 
 // optimizerResult wraps the optimizer publish payload to implement BytesMarshaler.
@@ -221,6 +233,9 @@ func (site *Site) optimizerUpdateAsync() {
 	if !mu.TryLock() {
 		return
 	}
+	// re-run if a trigger arrived while we held the lock (deferred LIFO, so this
+	// runs after mu.Unlock below, letting the re-run acquire the lock)
+	defer site.rerunIfPending()
 	defer mu.Unlock()
 
 	// slot/debounce gate; triggerOptimizer bypasses it by zeroing optimizerUpdated
