@@ -46,7 +46,7 @@ const (
 	OptimizerDischargeToGrid = "optimizerDischargeToGrid"
 	OptimizerManualPA        = "optimizerManualPA"
 	BatteryGridChargeLimit   = "batteryGridChargeLimit"
-	BatteryOptimizerSocGoal  = "batteryOptimizerSocGoal"
+	BatteryOptimizerSocGoals = "batteryOptimizerSocGoals" // recurring optimizer reserve goals
 	BatteryGridChargeActive  = "batteryGridChargeActive"
 	BufferSoc                = "bufferSoc"
 	BufferStartSoc           = "bufferStartSoc"
