@@ -99,9 +99,9 @@ import {
 	type VehicleStatus,
 	type Vehicle,
 	type LoadpointUi,
+	type PlanStrategy,
 	type LoadpointSuggestion,
 } from "@/types/evcc";
-import type { PlanStrategy } from "@/components/ChargingPlans/types";
 import BatteryBoostButton from "../Loadpoints/BatteryBoostButton.vue";
 import type ChargingPlanModal from "../ChargingPlans/ChargingPlanModal.vue";
 
@@ -199,7 +199,8 @@ export default defineComponent({
 			displayLimitSoc: this.effectiveLimitSoc,
 			statusOverride: undefined as VehicleStatus | undefined,
 			chargingPlanModal: this.$refs["chargingPlanModal"] as
-				InstanceType<typeof ChargingPlanModal> | undefined,
+				| InstanceType<typeof ChargingPlanModal>
+				| undefined,
 		};
 	},
 	computed: {

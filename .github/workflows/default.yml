@@ -10,7 +10,7 @@ on:
 jobs:
   clean:
     name: Clean
-    runs-on: depot-ubuntu-24.04-arm
+    runs-on: ubuntu-24.04
 
     permissions:
       contents: read
@@ -20,7 +20,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: false # avoid cache thrashing
@@ -50,7 +50,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: depot-ubuntu-24.04-arm
+    runs-on: ubuntu-24.04
 
     permissions:
       contents: read
@@ -60,7 +60,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: false
@@ -76,10 +76,10 @@ jobs:
             ${{ runner.os }}-go-build-
             ${{ runner.os }}-go-
 
-      - uses: actions/setup-node@v6
+      - uses: voidzero-dev/setup-vp@v1
         with:
           node-version: "26"
-          cache: "npm"
+          cache: true
 
       - run: mkdir dist && touch dist/empty
 
@@ -88,7 +88,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: depot-ubuntu-24.04-arm
+    runs-on: ubuntu-24.04
 
     permissions:
       contents: read
@@ -98,7 +98,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: false
@@ -119,7 +119,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: depot-ubuntu-24.04-arm
+    runs-on: ubuntu-24.04
 
     permissions:
       contents: read
@@ -129,7 +129,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: false # avoid cache thrashing
@@ -161,20 +161,23 @@ jobs:
     permissions:
       contents: read
       actions: write
-    runs-on: depot-ubuntu-24.04-arm
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      - uses: voidzero-dev/setup-vp@v1
         with:
           node-version: "26"
-          cache: "npm"
+          cache: true
 
       - name: Install
         run: make install-ui
+
+      - name: OpenAPI
+        run: make openapi
 
       - name: Lint
         run: make lint-ui
@@ -203,7 +206,12 @@ jobs:
 
   integration:
     name: Integration
-    runs-on: depot-ubuntu-24.04-arm-32
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
 
     permissions:
       contents: read
@@ -214,7 +222,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: false
@@ -230,10 +238,10 @@ jobs:
             ${{ runner.os }}-go-integration-
             ${{ runner.os }}-go-
 
-      - uses: actions/setup-node@v6
+      - uses: voidzero-dev/setup-vp@v1
         with:
           node-version: "26"
-          cache: "npm"
+          cache: true
 
       - name: Build UI
         run: make install-ui ui
@@ -254,27 +262,27 @@ jobs:
 
       - name: Install Playwright (browsers + deps)
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
+        run: vpx playwright install --with-deps chromium
         timeout-minutes: 5
 
       - name: Run tests
-        run: npx playwright test
+        run: npx playwright test --shard=${{ matrix.shard }}/4 --workers=3 --reporter=blob,html
         timeout-minutes: 20
         env:
           TZ: Europe/Berlin
 
-      - name: Upload Playwright Report
+      - name: Upload HTML report
         uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
 
-      - name: Upload Playwright Raw Test Results
+      - name: Upload blob report
         uses: actions/upload-artifact@v7
-        if: failure()
+        if: ${{ !cancelled() }}
         with:
-          name: playwright-test-results
-          path: test-results/
-          retention-days: 2
+          name: blob-report-${{ matrix.shard }}
+          path: blob-report/
+          retention-days: 14
