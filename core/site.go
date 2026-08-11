@@ -948,18 +948,21 @@ func (site *Site) updateMeters() error {
 	}
 
 	if sponsor.IsAuthorized() && optimizerEnabled() {
-		// mark a re-run when the planner/feedin tariffs change (e.g. a new MQTT
-		// price push); the dirty flag persists across cycles, so a change seen
-		// inside the rate-limit window still runs once the window opens and
-		// planner+feedin updates landing in separate cycles collapse into one run
-		if site.optimizerTariffsChanged() {
+		switch {
+		case site.optimizerTariffsChanged():
+			// a planner/feedin price changed. The two tariffs publish on separate
+			// MQTT topics that evcc reads independently, so defer the run one
+			// cycle instead of running now on a half-updated pair: mark it pending
+			// and let both settle. A change in either cycle keeps it pending.
 			optimizerTariffDirty = true
-		}
-
-		slotDue := time.Since(optimizerUpdated) >= tariff.SlotDuration
-		tariffDue := optimizerTariffDirty && time.Since(optimizerUpdated) >= optimizerTariffInterval
-		if slotDue || tariffDue {
+		case optimizerTariffDirty:
+			// tariffs changed last cycle and are stable now - run once, so planner
+			// and feedin are always consistent within a single run. triggerOptimizer
+			// is single-flight (queues exactly one re-run if a run is in progress).
 			optimizerTariffDirty = false
+			site.triggerOptimizer()
+		case time.Since(optimizerUpdated) >= tariff.SlotDuration:
+			// backstop: re-run each slot even when the tariffs are static
 			go site.optimizerUpdateAsync()
 		}
 	}
