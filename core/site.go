@@ -81,12 +81,14 @@ type Site struct {
 	curtailPercent *int
 
 	// battery settings
-	prioritySoc             float64  // prefer battery up to this Soc
-	bufferSoc               float64  // continue charging on battery above this Soc
-	bufferStartSoc          float64  // start charging on battery above this Soc
-	batteryDischargeControl bool     // prevent battery discharge for fast and planned charging
-	batteryGridChargeLimit  *float64 // grid charging limit
-	batteryGridDischarge    bool     // allow battery discharge to grid (experimental)
+	prioritySoc              float64             // prefer battery up to this Soc
+	bufferSoc                float64             // continue charging on battery above this Soc
+	bufferStartSoc           float64             // start charging on battery above this Soc
+	batteryDischargeControl  bool                // prevent battery discharge for fast and planned charging
+	optimizerManualPA        *float64            // optional manual p_a override in currency/kWh
+	batteryGridChargeLimit   *float64            // grid charging limit
+	batteryOptimizerSocGoals []api.RepeatingPlan // recurring optimizer reserve goals (soc + time + tz + weekdays)
+	batteryGridDischarge     bool                // allow battery discharge to grid (experimental)
 
 	// forecast settings
 	solarAdjusted bool // adjust solar forecast to real production data
@@ -378,6 +380,16 @@ func (site *Site) restoreSettings() error {
 	}
 	if v, err := settings.Bool(keys.BatteryDischargeControl); err == nil {
 		if err := site.SetBatteryDischargeControl(v); err != nil && !errors.Is(err, ErrBatteryControlNotAvailable) {
+			return err
+		}
+	}
+	if v, err := settings.Float(keys.OptimizerManualPA); err == nil {
+		if err := site.SetOptimizerManualPA(&v); err != nil {
+			return err
+		}
+	}
+	if goals, err := loadBatteryOptimizerSocGoals(); err == nil && len(goals) > 0 {
+		if err := site.SetBatteryOptimizerSocGoals(goals); err != nil && !errors.Is(err, ErrBatteryControlNotAvailable) {
 			return err
 		}
 	}
@@ -937,8 +949,26 @@ func (site *Site) updateMeters() error {
 		return err
 	}
 
-	if sponsor.IsAuthorized() && optimizerEnabled() && time.Since(optimizerUpdated) >= tariff.SlotDuration {
-		go site.optimizerUpdateAsync()
+	if sponsor.IsAuthorized() && optimizerEnabled() {
+		// refresh the fingerprint every cycle so a change is never missed
+		tariffsChanged := site.optimizerTariffsChanged()
+		switch {
+		case optimizerTariffDirty:
+			// a price change was pending from the previous cycle: run it now,
+			// before re-arming, so a continuous stream of updates can't defer the
+			// run indefinitely (and starve the backstop). The run reads the latest
+			// planner+feedin at execution time, so a change also landing this
+			// cycle is captured, and both separate MQTT topics are consistent.
+			optimizerTariffDirty = false
+			site.triggerOptimizer()
+		case tariffsChanged:
+			// first change of a burst: defer one cycle so planner and feedin
+			// (separate MQTT topics) both settle, then run via the case above.
+			optimizerTariffDirty = true
+		case time.Since(optimizerUpdated) >= tariff.SlotDuration:
+			// backstop: re-run each slot even when the tariffs are static
+			go site.optimizerUpdateAsync()
+		}
 	}
 
 	return nil
@@ -1184,7 +1214,7 @@ func (site *Site) update(lp updater) {
 			)
 		}
 
-		site.log.WARN.Println("planner:", msg)
+		site.log.INFO.Println("planner:", msg)
 	}
 
 	// update battery after reading meters to ensure that (modbus) connection is open
@@ -1217,6 +1247,8 @@ func (site *Site) prepare() {
 	site.publish(keys.BufferStartSoc, site.bufferStartSoc)
 	site.publish(keys.BatteryMode, site.batteryMode)
 	site.publish(keys.BatteryDischargeControl, site.batteryDischargeControl)
+	site.publish(keys.OptimizerManualPA, site.GetOptimizerManualPA())
+	site.publish(keys.BatteryOptimizerSocGoals, site.GetBatteryOptimizerSocGoals())
 	site.publish(keys.BatteryGridDischarge, site.batteryGridDischarge)
 	site.publish(keys.SolarAdjusted, site.solarAdjusted)
 	site.publish(keys.ResidualPower, site.GetResidualPower())
@@ -1234,6 +1266,21 @@ func (site *Site) prepare() {
 	site.publishTariffs(0, 0)
 	vehicle.Publish = site.publishVehicles
 	vehicle.ClearPlanLocks = site.clearPlanLocks
+}
+
+// pushEvent queues the event in the value stream. The cache attaches its state
+// when the event reaches its position, so the message renders exactly the
+// values published before the event was raised.
+func (site *Site) pushEvent(ev messenger.Event) {
+	pushChan := site.pushChan
+	if pushChan == nil {
+		return
+	}
+
+	site.valueChan <- util.Param{Val: util.Snapshot(func(state []util.Param) {
+		ev.State = state
+		pushChan <- ev
+	})}
 }
 
 // Prepare attaches communication channels to site and loadpoints
@@ -1274,7 +1321,7 @@ func (site *Site) Prepare(valueChan chan<- util.Param, pushChan chan<- messenger
 					site.valueChan <- param
 				case ev := <-lpPushChan:
 					ev.Loadpoint = &id
-					pushChan <- ev
+					site.pushEvent(ev)
 				}
 			}
 		}(id)

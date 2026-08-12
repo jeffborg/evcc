@@ -3,7 +3,7 @@
 		<div>
 			<ChargingPlanRepeatingSettings
 				:showHeader="index === 0"
-				:number="index + 2"
+				:number="index + startNumber"
 				class="mb-5 mb-lg-4"
 				:formIdPrefix="formIdPrefix"
 				v-bind="plan"
@@ -32,7 +32,7 @@ import PlanRepeatingSettings from "./PlanRepeatingSettings.vue";
 import deepEqual from "@/utils/deepEqual";
 import formatter from "@/mixins/formatter";
 import { defineComponent, type PropType } from "vue";
-import type { RepeatingPlan } from "./types";
+import type { RepeatingPlan } from "@/types/evcc";
 
 const DEFAULT_WEEKDAYS = [1, 2, 3, 4, 5];
 const DEFAULT_TARGET_TIME = "07:00";
@@ -47,6 +47,7 @@ export default defineComponent({
 	props: {
 		id: [Number, String],
 		rangePerSoc: Number,
+		startNumber: { type: Number, default: 2 }, // loadpoint repeating plans follow the static plan (#1)
 		plans: { type: Array as PropType<RepeatingPlan[]>, default: () => [] },
 	},
 	emits: ["updated"],
