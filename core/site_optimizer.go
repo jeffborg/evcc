@@ -544,10 +544,15 @@ func (site *Site) optimizerRequest(battery []types.Measurement) (optimizer.Optim
 		GridForecastMissing: gridMissing,
 	}
 
-	// hard grid import limit; hardcoded to the physical grid-connection ceiling,
-	// intentionally NOT derived from site.circuit (whose GetMaxPower is the Amber
-	// max-demand value)
-	req.Grid.PMaxImp = 15000
+	// DRAFT ALTERNATIVE to the hardcoded PMaxImp=15000: derive the import limit
+	// from the circuit's max power (upstream's approach). Left here so it can be
+	// compared against the hardcode; note site.circuit.GetMaxPower is the Amber
+	// max-demand value, which is why the fork hardcodes the connection ceiling.
+	if site.circuit != nil {
+		if pMaxImp := site.circuit.GetMaxPower(); pMaxImp > 0 {
+			req.Grid.PMaxImp = float32(pMaxImp)
+		}
+	}
 
 	// static grid export limit configured in the UI: export is capped at this
 	// power, excess PV is curtailed instead of exported
