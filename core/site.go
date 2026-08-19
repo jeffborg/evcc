@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,7 +35,9 @@ import (
 	"github.com/evcc-io/evcc/util"
 	"github.com/evcc-io/evcc/util/config"
 	"github.com/evcc-io/evcc/util/modbus"
+	"github.com/evcc-io/evcc/util/sponsor"
 	"github.com/evcc-io/evcc/util/telemetry"
+	"github.com/jinzhu/now"
 	"github.com/samber/lo"
 	"github.com/smallnest/chanx"
 	"golang.org/x/sync/errgroup"
@@ -80,12 +83,14 @@ type Site struct {
 	curtailPercent *int
 
 	// battery settings
-	prioritySoc             float64  // prefer battery up to this Soc
-	bufferSoc               float64  // continue charging on battery above this Soc
-	bufferStartSoc          float64  // start charging on battery above this Soc
-	batteryDischargeControl bool     // prevent battery discharge for fast and planned charging
-	batteryGridChargeLimit  *float64 // grid charging limit
-	batteryGridDischarge    bool     // allow battery discharge to grid (experimental)
+	prioritySoc              float64             // prefer battery up to this Soc
+	bufferSoc                float64             // continue charging on battery above this Soc
+	bufferStartSoc           float64             // start charging on battery above this Soc
+	batteryDischargeControl  bool                // prevent battery discharge for fast and planned charging
+	batteryGridChargeLimit   *float64            // grid charging limit
+	batteryGridDischarge     bool                // allow battery discharge to grid (experimental)
+	optimizerManualPA        *float64            // optional manual p_a override in currency/kWh
+	batteryOptimizerSocGoals []api.RepeatingPlan // recurring optimizer reserve goals (soc + time + tz + weekdays)
 
 	// grid settings
 	gridExportLimit float64 // static grid export power limit in W, 0 = disabled
@@ -115,11 +120,17 @@ type Site struct {
 	batteryMode              api.BatteryMode             // Battery mode (runtime only, not persisted)
 	batteryModeExternal      api.BatteryMode             // Battery mode (external, runtime only, not persisted)
 	batteryModeExternalTimer time.Time                   // Battery mode timer for external control
+	batteryModeApplied       map[string]api.BatteryMode  // Battery mode last applied per battery meter
 	suggestions              map[string]types.Suggestion // Optimizer suggestions by device key
 	suggestionActions        map[string]string           // last notified actionable optimizer action by device key
 
-	optimizerMu      sync.Mutex // guards optimizer runs
-	optimizerUpdated time.Time  // last optimizer run, guarded by optimizerMu
+	optimizerMu          sync.Mutex  // guards optimizer runs
+	optimizerUpdated     time.Time   // last optimizer run, guarded by optimizerMu
+	optimizerPending     atomic.Bool // a trigger arrived while a run held the lock; re-run afterwards
+	optimizerTariffHash  uint64      // fingerprint of the planner+feedin rates last seen by the update loop
+	optimizerTariffDirty bool        // a tariff change is pending; deferred one cycle so planner+feedin settle
+
+	solarScaleCached func() (float64, error) // util.Cached wrapper around querySolarScale
 }
 
 // MetersConfig contains the site's meter configuration
@@ -353,6 +364,15 @@ func NewSite() *Site {
 		Voltage:    230, // V
 		collectors: make(map[string]*metrics.Collector),
 	}
+
+	// the result only depends on completed days, so it cannot change within a day
+	site.solarScaleCached = util.Cached(func() (float64, error) {
+		scale, err := site.querySolarScale(now.BeginningOfDay())
+		if err != nil {
+			site.log.ERROR.Printf("solar scale percentile: %v, falling back to unadjusted forecast", err)
+		}
+		return scale, err
+	}, 24*time.Hour)
 
 	return site
 }
@@ -1003,7 +1023,27 @@ func (site *Site) updateMeters() error {
 		return err
 	}
 
-	go site.optimizerUpdateAsync(tariff.SlotDuration)
+	if sponsor.IsAuthorized() && optimizerEnabled() {
+		// refresh the fingerprint every cycle so a change is never missed
+		tariffsChanged := site.optimizerTariffsChanged()
+		switch {
+		case site.optimizerTariffDirty:
+			// a price change was pending from the previous cycle: run it now,
+			// before re-arming, so a continuous stream of updates can't defer the
+			// run indefinitely (and starve the backstop). The run reads the latest
+			// planner+feedin at execution time, so a change also landing this
+			// cycle is captured, and both separate MQTT topics are consistent.
+			site.optimizerTariffDirty = false
+			site.triggerOptimizer()
+		case tariffsChanged:
+			// first change of a burst: defer one cycle so planner and feedin
+			// (separate MQTT topics) both settle, then run via the case above.
+			site.optimizerTariffDirty = true
+		case time.Since(site.optimizerUpdated) >= tariff.SlotDuration:
+			// backstop: re-run each slot even when the tariffs are static
+			go site.optimizerUpdateAsync(tariff.SlotDuration)
+		}
+	}
 
 	return nil
 }
@@ -1042,9 +1082,10 @@ func (site *Site) sitePower(totalChargePower, flexiblePower float64) (float64, b
 		residualPower = 100 // W
 	}
 
-	// allow using grid and charge as estimate for pv power
-	if site.pvMeters == nil {
-		site.pvPower = totalChargePower - site.gridPower + residualPower
+	// allow using grid, charge and battery power as estimate for pv power
+	// needs a grid meter, otherwise grid power is itself derived from pv power (see above)
+	if site.pvMeters == nil && site.gridMeter != nil {
+		site.pvPower = totalChargePower - site.gridPower - site.battery.Power + residualPower
 		if site.pvPower < 0 {
 			site.pvPower = 0
 		}
