@@ -86,6 +86,46 @@ func TestOptimizerTariffsChanged(t *testing.T) {
 	assert.False(t, site.optimizerTariffsChanged(), "re-reading the changed feedin rate should report unchanged")
 }
 
+// TestOptimizerPerCycleGating verifies the per-cycle self-gating that
+// optimizerUpdateAsync applies for a positive minAge: a fresh price change is
+// deferred one cycle (dirty set, no run) and unchanged prices within the slot are
+// throttled by the backstop (no run, no defer). This is the fork's optimizer
+// trigger logic, relocated out of the site loop into optimizerUpdateAsync.
+func TestOptimizerPerCycleGating(t *testing.T) {
+	// authorize sponsor + enable the optimizer so optimizerUpdateAsync runs its body
+	require.NoError(t, db.NewInstance("sqlite", ":memory:"))
+	settings.SetBool(keys.Experimental, true)
+	settings.SetBool(keys.Optimizer, true)
+	sponsor.Subject = "test"
+	t.Cleanup(func() {
+		sponsor.Subject = ""
+		settings.SetBool(keys.Experimental, false)
+		settings.SetBool(keys.Optimizer, false)
+	})
+
+	start := time.Now().Truncate(time.Hour)
+	rates := api.Rates{{Start: start, End: start.Add(tariff.SlotDuration), Value: 0.20}}
+	planner := &fakeRatesTariff{rates: rates}
+	feedin := &fakeRatesTariff{rates: rates}
+	site := &Site{log: util.NewLogger("test"), tariffs: &tariff.Tariffs{Planner: planner, FeedIn: feedin}}
+
+	// first per-cycle call sees a price change (fingerprint starts at zero) and
+	// defers a single cycle instead of running
+	site.optimizerUpdateAsync(tariff.SlotDuration)
+	assert.True(t, site.optimizerTariffDirty, "first price change should be deferred one cycle")
+	assert.True(t, site.optimizerUpdated.IsZero(), "deferred cycle must not run the optimizer")
+
+	// simulate the deferred run having happened: clear dirty and mark a recent run.
+	// A subsequent call with unchanged prices is throttled by the slot backstop -
+	// it neither runs nor re-arms the defer.
+	site.optimizerTariffDirty = false
+	updated := time.Now()
+	site.optimizerUpdated = updated
+	site.optimizerUpdateAsync(tariff.SlotDuration)
+	assert.False(t, site.optimizerTariffDirty, "unchanged prices within the slot should not set dirty")
+	assert.Equal(t, updated, site.optimizerUpdated, "throttled cycle must not run the optimizer")
+}
+
 // TestOptimizerSettingsPersistRoundTrip is a regression guard for the boot-restore
 // bug: recurring battery SoC goals and manual PA are persisted, so the read-back
 // path (loadBatteryOptimizerSocGoals / settings.Float, wired into restoreSettings)

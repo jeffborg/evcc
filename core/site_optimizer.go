@@ -232,6 +232,14 @@ func (site *Site) setSuggestions(suggestions map[string]types.Suggestion) {
 	site.suggestions = suggestions
 }
 
+// setBatteryForecast replaces the battery forecast of the cached state
+func (site *Site) setBatteryForecast(forecast *types.BatteryForecast) {
+	site.Lock()
+	defer site.Unlock()
+
+	site.battery.Forecast = forecast
+}
+
 // suggestion returns the optimizer suggestion for the given device key.
 // The actionable flag is evaluated on read against the device's current
 // action since that changes between optimizer runs.
@@ -268,7 +276,7 @@ func (site *Site) publishSuggestions() {
 // optimizer result is stale
 func (site *Site) clearSuggestions() {
 	site.setSuggestions(nil)
-	site.battery.Forecast = nil
+	site.setBatteryForecast(nil)
 
 	site.publishBattery()
 	site.publishSuggestions()
@@ -374,7 +382,8 @@ func (site *Site) rerunIfPending() {
 // changed since the last call, updating the stored fingerprint. These are the
 // optimizer's price inputs (import via planner, export via feedin). A new price
 // push (e.g. over MQTT) flips the rate values; a slot boundary prunes past rates
-// - either way the fingerprint changes. Called once per site update cycle.
+// - either way the fingerprint changes. Called from optimizerUpdateAsync under
+// optimizerMu (the only reader/writer of the fingerprint), so it needs no lock.
 func (site *Site) optimizerTariffsChanged() bool {
 	h := fnv.New64a()
 	var buf [16]byte
@@ -393,11 +402,14 @@ func (site *Site) optimizerTariffsChanged() bool {
 	return changed
 }
 
-// optimizerUpdateAsync runs the optimizer unless the last run is younger than
-// minAge. Pass 0 to force a run, e.g. when a changed setting should take effect
-// without waiting for the next slot. It is a no-op when the optimizer is not
-// active or a run is already in progress; the running update reflects the
-// change on its next slot.
+// optimizerUpdateAsync advances the optimizer. Pass 0 to force an immediate run
+// (a changed setting or explicit trigger). Pass a positive minAge for the regular
+// per-cycle call from the site loop, which self-gates: it re-runs immediately when
+// the planner+feedin price inputs change (deferring a single cycle first so both -
+// separate MQTT topics - settle) and otherwise runs at most once per minAge (the
+// slot backstop). It is a no-op when the optimizer is not active or a run is
+// already in progress; the pending flag ensures an overlapping trigger re-runs
+// afterwards (see rerunIfPending).
 func (site *Site) optimizerUpdateAsync(minAge time.Duration) {
 	if !sponsor.IsAuthorized() || !optimizerEnabled() {
 		return
@@ -413,10 +425,29 @@ func (site *Site) optimizerUpdateAsync(minAge time.Duration) {
 	defer site.optimizerMu.Unlock()
 
 	if minAge == 0 {
-		// keep the gate open so a not-ready run is retried on the next cycle
+		// forced run: keep the gate open so a not-ready run is retried next cycle
 		site.optimizerUpdated = time.Time{}
-	} else if time.Since(site.optimizerUpdated) < minAge {
-		return
+	} else {
+		// regular per-cycle call: gate on price changes and the slot backstop. All
+		// tariff state (dirty flag, fingerprint) is read/written only here, under
+		// optimizerMu, so it needs no separate synchronization.
+		switch {
+		case site.optimizerTariffDirty:
+			// a price change was pending from the previous cycle: run it now. The
+			// run reads the latest planner+feedin at execution time, so a change
+			// also landing this cycle is captured and both topics stay consistent.
+			// Zero the gate so a not-ready run is retried on the next cycle.
+			site.optimizerTariffDirty = false
+			site.optimizerUpdated = time.Time{}
+		case site.optimizerTariffsChanged():
+			// first change of a burst: defer one cycle so planner and feedin
+			// (separate MQTT topics) both settle, then run via the case above.
+			site.optimizerTariffDirty = true
+			return
+		case time.Since(site.optimizerUpdated) < minAge:
+			// backstop: static prices re-run at most once per slot; not due yet
+			return
+		}
 	}
 
 	var err error
@@ -441,7 +472,7 @@ func (site *Site) optimizerUpdateAsync(minAge time.Duration) {
 		}
 	}()
 
-	err = site.optimizerUpdate(site.battery.Devices)
+	err = site.optimizerUpdate(site.state().battery.Devices)
 }
 
 // optimizerRequest assembles the optimizer request and the matching device
@@ -724,7 +755,7 @@ func (site *Site) applyOptimizerResult(req optimizer.OptimizationInput, details 
 	site.publish("evopt-batteries", batteries)
 
 	site.setSuggestions(suggestions)
-	site.battery.Forecast = site.addBatteryForecastTotals(req.Batteries, res.Batteries)
+	site.setBatteryForecast(site.addBatteryForecastTotals(req.Batteries, res.Batteries))
 
 	site.publishBattery()
 
