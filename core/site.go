@@ -35,7 +35,6 @@ import (
 	"github.com/evcc-io/evcc/util"
 	"github.com/evcc-io/evcc/util/config"
 	"github.com/evcc-io/evcc/util/modbus"
-	"github.com/evcc-io/evcc/util/sponsor"
 	"github.com/evcc-io/evcc/util/telemetry"
 	"github.com/jinzhu/now"
 	"github.com/samber/lo"
@@ -1072,28 +1071,6 @@ func (site *Site) updateMeters() (siteState, error) {
 		return siteState{}, err
 	}
 
-	if sponsor.IsAuthorized() && optimizerEnabled() {
-		// refresh the fingerprint every cycle so a change is never missed
-		tariffsChanged := site.optimizerTariffsChanged()
-		switch {
-		case site.optimizerTariffDirty:
-			// a price change was pending from the previous cycle: run it now,
-			// before re-arming, so a continuous stream of updates can't defer the
-			// run indefinitely (and starve the backstop). The run reads the latest
-			// planner+feedin at execution time, so a change also landing this
-			// cycle is captured, and both separate MQTT topics are consistent.
-			site.optimizerTariffDirty = false
-			site.triggerOptimizer()
-		case tariffsChanged:
-			// first change of a burst: defer one cycle so planner and feedin
-			// (separate MQTT topics) both settle, then run via the case above.
-			site.optimizerTariffDirty = true
-		case time.Since(site.optimizerUpdated) >= tariff.SlotDuration:
-			// backstop: re-run each slot even when the tariffs are static
-			go site.optimizerUpdateAsync(tariff.SlotDuration)
-		}
-	}
-
 	return site.state(), nil
 }
 
@@ -1267,8 +1244,10 @@ func (site *Site) update(lp updater) {
 	if state, err := site.updateMeters(); err != nil {
 		site.log.ERROR.Println(err)
 	} else {
-		// optimizer triggering is gated in updateMeters (immediate on tariff
-		// change + per-slot backstop); no unconditional per-cycle run here.
+		// advance the optimizer once per cycle; optimizerUpdateAsync self-gates on
+		// price changes (immediate re-run) and the per-slot backstop (see there).
+		go site.optimizerUpdateAsync(tariff.SlotDuration)
+
 		site.updatePower(lp, state, totalChargePower, consumption, feedin)
 	}
 
