@@ -67,12 +67,27 @@ jobs:
           PUBLIC_TAGS=$(cat public_tags.txt)
           EXISTING_TAGS=$(cat existing_tags.txt)
 
+          # Only sync tags NEWER than the latest already-released one. An older
+          # upstream tag is superseded by a newer release, so we must not keep
+          # recreating its branch/PR (e.g. 0.314.0 once 0.314.2.0 is released -
+          # its .0 will never exist, so the plain "missing tag" check reopened the
+          # release PR on every run). tag_to_numeric ignores the 4th (.0) field,
+          # so an existing 0.314.2.0 maps to the same value as public tag 0.314.2.
+          LATEST_NUMERIC=$START_NUMERIC
+          for T in $EXISTING_TAGS; do
+            N=$(tag_to_numeric "$T")
+            if [ "$N" -gt "$LATEST_NUMERIC" ]; then
+              LATEST_NUMERIC=$N
+            fi
+          done
+          echo "Latest released tag (numeric floor): $LATEST_NUMERIC"
+
           for TAG in $PUBLIC_TAGS; do
             # Convert the current tag to numeric format
             TAG_NUMERIC=$(tag_to_numeric $TAG)
 
-            # Check if the tag is greater than the starting tag
-            if [ "$TAG_NUMERIC" -gt "$START_NUMERIC" ]; then
+            # Only process tags newer than the latest already-released tag
+            if [ "$TAG_NUMERIC" -gt "$LATEST_NUMERIC" ]; then
               # Generate the new tag name with .0 suffix
               NEW_TAG="${TAG}.0"
 
