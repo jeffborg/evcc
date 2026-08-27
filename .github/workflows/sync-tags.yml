@@ -95,11 +95,47 @@ jobs:
               if ! echo "$EXISTING_TAGS" | grep -q "^${NEW_TAG}$"; then
                 echo "Processing new tag: $NEW_TAG"
 
+                # Choose what to fold into the tag branch.
+                #
+                # Feature releases (patch 0, e.g. 0.314.0) are cut by upstream
+                # from their master, so we fold in OUR master (fork features on
+                # top of that feature base).
+                #
+                # Patch releases (patch >0, e.g. 0.314.5) are cut by upstream
+                # from a release/0.X branch and share the 0.X.0 base. Folding in
+                # master would drag the entire master-vs-release-line divergence
+                # (UI/library migrations, API signature changes, ...) into an old
+                # stable line and cause large, recurring conflicts. Instead fold
+                # in our OWN finished feature-release branch tag-0.X.0: the merge
+                # base is then 0.X.0, so the only deltas are the backported
+                # bugfixes plus our fork features. Master keeps advancing
+                # independently for the nightly build.
+                #
+                # Guard: only use tag-0.X.0 once that feature release is actually
+                # finalized (its 0.X.0.0 tag exists); before that its branch is
+                # bare upstream 0.X.0 with none of our fork changes, so fall back
+                # to master.
+                MINOR="${TAG%.*}"   # 0.X
+                PATCH="${TAG##*.}"  # Y
+                MERGE_SRC="master"
+                PR_HEAD="master"
+                FEATURE_BRANCH="tag-${MINOR}.0"
+                if [ "$PATCH" != "0" ] && [ -n "$(git tag -l "${MINOR}.0.0")" ]; then
+                  if git rev-parse --verify --quiet "refs/heads/${FEATURE_BRANCH}" >/dev/null; then
+                    MERGE_SRC="${FEATURE_BRANCH}"       # created earlier in this run
+                    PR_HEAD="${FEATURE_BRANCH}"
+                  elif git rev-parse --verify --quiet "origin/${FEATURE_BRANCH}" >/dev/null; then
+                    MERGE_SRC="origin/${FEATURE_BRANCH}" # from a previous run
+                    PR_HEAD="${FEATURE_BRANCH}"
+                  fi
+                fi
+                echo "Folding ${MERGE_SRC} into tag-${TAG}"
+
                 # Create a new branch for the tag
                 git checkout -b "tag-${TAG}" ${TAG}
 
-                # Attempt to merge the master branch into the new branch
-                git merge master --no-edit || {
+                # Attempt to merge the chosen source into the new branch
+                git merge "$MERGE_SRC" --no-edit || {
                   echo "Merge conflict detected for tag ${TAG}. Attempting auto-resolution."
 
                   # Auto-resolve conflicts that are confined to the fork's known,
@@ -116,7 +152,7 @@ jobs:
                     echo "Unresolved conflicts remain for tag ${TAG}. Creating pull request."
                     git merge --abort
                     git push origin "tag-${TAG}"
-                    gh pr create --title "Resolve merge conflict for tag ${NEW_TAG}" --body "A merge conflict was detected while syncing tag ${NEW_TAG}. Please resolve the conflict in this PR." --head master --base "tag-${TAG}"
+                    gh pr create --title "Resolve merge conflict for tag ${NEW_TAG}" --body "A merge conflict was detected while syncing tag ${NEW_TAG} (folding ${PR_HEAD} into tag-${TAG}). Please resolve the conflict in this PR." --head "$PR_HEAD" --base "tag-${TAG}"
                     continue
                   fi
 
