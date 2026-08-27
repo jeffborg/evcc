@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"iter"
 	"slices"
 	"strings"
 	"time"
@@ -13,7 +14,6 @@ import (
 	"github.com/evcc-io/evcc/core/site"
 	"github.com/evcc-io/evcc/server/db/settings"
 	"github.com/evcc-io/evcc/util/config"
-	"github.com/evcc-io/evcc/util/sponsor"
 	"github.com/samber/lo"
 )
 
@@ -39,13 +39,8 @@ func filterConfigurable(ref []string) []string {
 }
 
 // Optimize updates the optimizer
-func (site *Site) Optimize() error {
-	if !sponsor.IsAuthorized() || !optimizerEnabled() {
-		return api.ErrNotAvailable
-	}
-
-	go site.optimizerUpdateAsync()
-	return nil
+func (site *Site) Optimize() {
+	go site.optimizerUpdateAsync(0)
 }
 
 // GetTitle returns the title
@@ -168,9 +163,36 @@ func (site *Site) GetBatterySoc() float64 {
 	return site.battery.Soc
 }
 
-// Loadpoints returns the loadpoints as api interfaces
+// GetBatteryMaxDischargePower returns the current battery max discharge power
+func (site *Site) GetBatteryMaxDischargePower() *float64 {
+	site.RLock()
+	defer site.RUnlock()
+	if site.batteryMaxDischargePower == nil {
+		return nil
+	}
+	return new(*site.batteryMaxDischargePower)
+}
+
+// Loadpoints returns the loadpoints as api interfaces.
+// Disabled loadpoints are returned as nil to keep indexes stable.
 func (site *Site) Loadpoints() []loadpoint.API {
-	return lo.Map(site.loadpoints, func(lp *Loadpoint, _ int) loadpoint.API { return lp })
+	return lo.Map(site.loadpoints, func(lp *Loadpoint, _ int) loadpoint.API {
+		if lp == nil {
+			return nil
+		}
+		return lp
+	})
+}
+
+// ActiveLoadpoints yields enabled loadpoints with their stable index
+func (site *Site) ActiveLoadpoints() iter.Seq2[int, loadpoint.API] {
+	return func(yield func(int, loadpoint.API) bool) {
+		for id, lp := range site.loadpoints {
+			if lp != nil && !yield(id, lp) {
+				return
+			}
+		}
+	}
 }
 
 func (site *Site) hasMeters() bool {
@@ -178,12 +200,17 @@ func (site *Site) hasMeters() bool {
 }
 
 func (site *Site) IsConfigured() bool {
-	return len(site.loadpoints) > 0 || site.hasMeters()
+	return slices.ContainsFunc(site.loadpoints, func(lp *Loadpoint) bool { return lp != nil }) || site.hasMeters()
+}
+
+// activeLoadpoints returns the non-disabled loadpoints
+func (site *Site) activeLoadpoints() []*Loadpoint {
+	return lo.Filter(site.loadpoints, func(lp *Loadpoint, _ int) bool { return lp != nil })
 }
 
 // loadpointsAsCircuitDevices returns the loadpoints as circuit devices
 func (site *Site) loadpointsAsCircuitDevices() []api.CircuitLoad {
-	return lo.Map(site.loadpoints, func(lp *Loadpoint, _ int) api.CircuitLoad { return lp })
+	return lo.Map(site.activeLoadpoints(), func(lp *Loadpoint, _ int) api.CircuitLoad { return lp })
 }
 
 // Vehicles returns the site vehicles
@@ -336,6 +363,38 @@ func (site *Site) SetResidualPower(power float64) error {
 	return nil
 }
 
+// GetGridExportLimit returns the static grid export power limit in W (0 = disabled)
+func (site *Site) GetGridExportLimit() float64 {
+	site.RLock()
+	defer site.RUnlock()
+	return site.gridExportLimit
+}
+
+// SetGridExportLimit sets the static grid export power limit in W (0 = disabled)
+func (site *Site) SetGridExportLimit(power float64) error {
+	if power < 0 {
+		return fmt.Errorf("invalid grid export limit: %g", power)
+	}
+
+	site.Lock()
+	changed := site.gridExportLimit != power
+	if changed {
+		site.gridExportLimit = power
+	}
+	site.Unlock()
+
+	if changed {
+		site.log.DEBUG.Println("set grid export limit:", power)
+		settings.SetFloat(keys.GridExportLimit, power)
+		site.publish(keys.GridExportLimit, power)
+
+		// re-run the optimizer so the new limit takes effect immediately
+		go site.optimizerUpdateAsync(0)
+	}
+
+	return nil
+}
+
 // GetTariff returns the respective tariff if configured or nil
 func (site *Site) GetTariff(tariff api.TariffUsage) api.Tariff {
 	site.RLock()
@@ -365,6 +424,40 @@ func (site *Site) SetBatteryDischargeControl(val bool) error {
 		site.batteryDischargeControl = val
 		settings.SetBool(keys.BatteryDischargeControl, val)
 		site.publish(keys.BatteryDischargeControl, val)
+	}
+
+	return nil
+}
+
+func (site *Site) GetOptimizerManualPA() *float64 {
+	site.RLock()
+	defer site.RUnlock()
+	return site.optimizerManualPA
+}
+
+func (site *Site) SetOptimizerManualPA(val *float64) error {
+	site.log.DEBUG.Println("set optimizer manual p_a:", printPtr("%.3f", val))
+
+	var changed bool
+
+	site.Lock()
+	if !ptrValueEqual(site.optimizerManualPA, val) {
+		site.optimizerManualPA = val
+
+		if val == nil {
+			settings.SetString(keys.OptimizerManualPA, "")
+			site.publish(keys.OptimizerManualPA, nil)
+		} else {
+			settings.SetFloat(keys.OptimizerManualPA, *val)
+			site.publish(keys.OptimizerManualPA, *val)
+		}
+
+		changed = true
+	}
+	site.Unlock()
+
+	if changed {
+		site.triggerOptimizer()
 	}
 
 	return nil
@@ -449,6 +542,97 @@ func (site *Site) SetBatteryGridChargeLimit(val *float64) error {
 	return nil
 }
 
+func (site *Site) GetBatteryOptimizerSocGoals() []api.RepeatingPlan {
+	site.RLock()
+	defer site.RUnlock()
+	return site.batteryOptimizerSocGoals
+}
+
+func (site *Site) SetBatteryOptimizerSocGoals(goals []api.RepeatingPlan) error {
+	site.log.DEBUG.Printf("set battery optimizer soc goals: %+v", goals)
+
+	if !site.hasBatteryControl() {
+		return ErrBatteryControlNotAvailable
+	}
+
+	for i, g := range goals {
+		// inactive or weekday-less goals are ignored by the optimizer, so don't
+		// reject them here - matches applyBatterySocGoals and the shared UI, which
+		// lets a plan be toggled off or left without weekdays
+		if !g.Active || len(g.Weekdays) == 0 {
+			continue
+		}
+		if err := validateBatteryOptimizerSocGoal(g); err != nil {
+			return fmt.Errorf("battery optimizer soc goal %d: %w", i+1, err)
+		}
+	}
+
+	var changed bool
+
+	site.Lock()
+	if !slices.EqualFunc(site.batteryOptimizerSocGoals, goals, repeatingPlanEqual) {
+		site.batteryOptimizerSocGoals = goals
+
+		if len(goals) == 0 {
+			settings.SetString(keys.BatteryOptimizerSocGoals, "")
+		} else if err := settings.SetJson(keys.BatteryOptimizerSocGoals, goals); err != nil {
+			site.log.ERROR.Printf("battery optimizer soc goals: %v", err)
+		}
+		site.publish(keys.BatteryOptimizerSocGoals, goals)
+
+		changed = true
+	}
+	site.Unlock()
+
+	if changed {
+		site.triggerOptimizer()
+	}
+
+	return nil
+}
+
+// validateBatteryOptimizerSocGoal checks a single reserve goal. Time is
+// meaningless without its zone, so an explicit valid IANA timezone is required.
+func validateBatteryOptimizerSocGoal(g api.RepeatingPlan) error {
+	if g.Soc <= 0 || g.Soc > 100 {
+		return errors.New("soc must be greater than 0 and at most 100")
+	}
+	if _, err := time.Parse("15:04", g.Time); err != nil {
+		return errors.New("time must use HH:MM format")
+	}
+	if g.Tz == "" {
+		return errors.New("timezone is required")
+	}
+	if _, err := time.LoadLocation(g.Tz); err != nil {
+		return errors.New("timezone must be a valid IANA timezone")
+	}
+	if len(g.Weekdays) == 0 {
+		return errors.New("at least one weekday is required")
+	}
+	for _, d := range g.Weekdays {
+		if d < 0 || d > 6 {
+			return errors.New("weekdays must be 0..6 (Sunday..Saturday)")
+		}
+	}
+	return nil
+}
+
+// repeatingPlanEqual compares two repeating plans by value (Weekdays is a slice).
+func repeatingPlanEqual(a, b api.RepeatingPlan) bool {
+	return a.Time == b.Time && a.Tz == b.Tz && a.Soc == b.Soc &&
+		a.Active == b.Active && slices.Equal(a.Weekdays, b.Weekdays)
+}
+
+// loadBatteryOptimizerSocGoals reads the persisted goals; returns (nil, err)
+// when absent or malformed so callers can simply skip it.
+func loadBatteryOptimizerSocGoals() ([]api.RepeatingPlan, error) {
+	var goals []api.RepeatingPlan
+	if err := settings.Json(keys.BatteryOptimizerSocGoals, &goals); err != nil {
+		return nil, err
+	}
+	return goals, nil
+}
+
 // GetOptimizerChargingStrategy returns the optimizer grid charging strategy,
 // falling back to the default when unset.
 func (site *Site) GetOptimizerChargingStrategy() string {
@@ -480,7 +664,7 @@ func (site *Site) SetOptimizerChargingStrategy(strategy string) error {
 		site.publish(keys.OptimizerChargingStrategy, strategy)
 
 		// re-run the optimizer so the new strategy takes effect immediately
-		site.triggerOptimizer()
+		go site.optimizerUpdateAsync(0)
 	}
 
 	return nil
