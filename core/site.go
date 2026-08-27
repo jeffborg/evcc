@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -83,12 +84,14 @@ type Site struct {
 	curtailPercent *int
 
 	// battery settings
-	prioritySoc             float64  // prefer battery up to this Soc
-	bufferSoc               float64  // continue charging on battery above this Soc
-	bufferStartSoc          float64  // start charging on battery above this Soc
-	batteryDischargeControl bool     // prevent battery discharge for fast and planned charging
-	batteryGridChargeLimit  *float64 // grid charging limit
-	batteryGridDischarge    bool     // allow battery discharge to grid (experimental)
+	prioritySoc              float64             // prefer battery up to this Soc
+	bufferSoc                float64             // continue charging on battery above this Soc
+	bufferStartSoc           float64             // start charging on battery above this Soc
+	batteryDischargeControl  bool                // prevent battery discharge for fast and planned charging
+	batteryGridChargeLimit   *float64            // grid charging limit
+	batteryGridDischarge     bool                // allow battery discharge to grid (experimental)
+	optimizerManualPA        *float64            // optional manual p_a override in currency/kWh
+	batteryOptimizerSocGoals []api.RepeatingPlan // recurring optimizer reserve goals (soc + time + tz + weekdays)
 
 	// grid settings
 	gridExportLimit float64 // static grid export power limit in W, 0 = disabled
@@ -119,8 +122,11 @@ type Site struct {
 	suggestions              map[string]types.Suggestion // Optimizer suggestions by device key
 	suggestionActions        map[string]string           // last notified actionable optimizer action by device key
 
-	optimizerMu      sync.Mutex // guards optimizer runs
-	optimizerUpdated time.Time  // last optimizer run, guarded by optimizerMu
+	optimizerMu          sync.Mutex  // guards optimizer runs
+	optimizerUpdated     time.Time   // last optimizer run, guarded by optimizerMu
+	optimizerPending     atomic.Bool // a trigger arrived while a run held the lock; re-run afterwards
+	optimizerTariffHash  uint64      // fingerprint of the planner+feedin rates last seen by the update loop
+	optimizerTariffDirty bool        // a tariff change is pending; deferred one cycle so planner+feedin settle
 
 	solarScaleCached func() (float64, error) // util.Cached wrapper around querySolarScale
 }
@@ -495,6 +501,19 @@ func (site *Site) restoreSettings() error {
 		if err := site.SetOptimizerChargingStrategy(v); err != nil {
 			site.log.WARN.Printf("optimizer charging strategy: %v", err)
 		}
+	}
+	if v, err := settings.Float(keys.OptimizerManualPA); err == nil {
+		if err := site.SetOptimizerManualPA(&v); err != nil {
+			site.log.WARN.Printf("optimizer manual pa: %v", err)
+		}
+	}
+	if goals, err := loadBatteryOptimizerSocGoals(); err == nil && len(goals) > 0 {
+		// restore the persisted goals directly: SetBatteryOptimizerSocGoals is the
+		// API path and rejects when no controllable battery is present yet at boot
+		site.Lock()
+		site.batteryOptimizerSocGoals = goals
+		site.Unlock()
+		site.publish(keys.BatteryOptimizerSocGoals, goals)
 	}
 	site.publish(keys.OptimizerChargingStrategy, site.GetOptimizerChargingStrategy())
 	site.publish(keys.OptimizerChargingStrategies, optimizerChargingStrategies)
@@ -1257,6 +1276,8 @@ func (site *Site) update(lp updater) {
 	if state, err := site.updateMeters(); err != nil {
 		site.log.ERROR.Println(err)
 	} else {
+		// advance the optimizer once per cycle; optimizerUpdateAsync self-gates on
+		// price changes (immediate re-run) and the per-slot backstop (see there).
 		go site.optimizerUpdateAsync(tariff.SlotDuration)
 
 		site.updatePower(lp, state, totalChargePower, consumption, feedin)
@@ -1338,7 +1359,9 @@ func (site *Site) updatePower(lp updater, state siteState, totalChargePower floa
 	}
 }
 
-// currentRate returns the rate for the current time, warning if the rates don't cover it
+// currentRate returns the rate for the current time, logging if the rates don't cover it.
+// The fork's planner/consumption tariff is a forward-only forecast that routinely does not
+// cover "now", so a missing rate is expected here and logged at INFO, not WARN (see #107).
 func (site *Site) currentRate(rates api.Rates) api.Rate {
 	rate, err := rates.At(time.Now())
 	if rates == nil || err == nil {
@@ -1353,7 +1376,7 @@ func (site *Site) currentRate(rates api.Rates) api.Rate {
 		)
 	}
 
-	site.log.WARN.Println("planner:", msg)
+	site.log.INFO.Println("planner:", msg)
 
 	return rate
 }
