@@ -84,14 +84,15 @@ type Site struct {
 	curtailPercent *int
 
 	// battery settings
-	prioritySoc              float64             // prefer battery up to this Soc
-	bufferSoc                float64             // continue charging on battery above this Soc
-	bufferStartSoc           float64             // start charging on battery above this Soc
-	batteryDischargeControl  bool                // prevent battery discharge for fast and planned charging
-	batteryGridChargeLimit   *float64            // grid charging limit
-	batteryGridDischarge     bool                // allow battery discharge to grid (experimental)
-	optimizerManualPA        *float64            // optional manual p_a override in currency/kWh
-	batteryOptimizerSocGoals []api.RepeatingPlan // recurring optimizer reserve goals (soc + time + tz + weekdays)
+	prioritySoc               float64             // prefer battery up to this Soc
+	bufferSoc                 float64             // continue charging on battery above this Soc
+	bufferStartSoc            float64             // start charging on battery above this Soc
+	batteryDischargeControl   bool                // prevent battery discharge for fast and planned charging
+	batteryGridChargeLimit    *float64            // grid charging limit
+	batteryGridDischargeLimit *float64            // grid discharging (feed-in) limit
+	batteryGridDischarge      bool                // allow battery discharge to grid (experimental)
+	optimizerManualPA         *float64            // optional manual p_a override in currency/kWh
+	batteryOptimizerSocGoals  []api.RepeatingPlan // recurring optimizer reserve goals (soc + time + tz + weekdays)
 
 	// grid settings
 	gridExportLimit float64 // static grid export power limit in W, 0 = disabled
@@ -491,6 +492,13 @@ func (site *Site) restoreSettings() error {
 	}
 	if v, err := settings.Float(keys.GridExportLimit); err == nil {
 		if err := site.SetGridExportLimit(v); err != nil {
+			return err
+		}
+	}
+	// restored after keys.BatteryGridDischarge above - a stored limit stays dormant
+	// while the opt-in is off
+	if v, err := settings.Float(keys.BatteryGridDischargeLimit); err == nil && site.GetBatteryGridDischarge() {
+		if err := site.SetBatteryGridDischargeLimit(&v); err != nil && !errors.Is(err, ErrBatteryControlNotAvailable) {
 			return err
 		}
 	}
@@ -1236,7 +1244,7 @@ func (site *Site) updateLoadpoints(rates api.Rates) float64 {
 // reservedPVPower returns the anticipated surplus claimed by higher-priority PV loadpoints
 // that are starting up, so lower-priority loadpoints defer enabling against it (#31194).
 func (site *Site) reservedPVPower(lp updater) float64 {
-	if lp.GetMode() != api.ModePV {
+	if !loadpoint.SurplusFlexible(lp) {
 		return 0
 	}
 
@@ -1295,7 +1303,20 @@ func (site *Site) update(lp updater) {
 	// update battery after reading meters to ensure that (modbus) connection is open
 	batteryGridChargeActive := site.batteryGridChargeActive(rate)
 	site.publish(keys.BatteryGridChargeActive, batteryGridChargeActive)
-	site.updateBatteryMode(batteryGridChargeActive, rate)
+
+	// grid discharge (feed-in arbitrage) uses the feed-in rate, not the grid rate
+	var batteryGridDischargeActive bool
+	if site.GetBatteryGridDischarge() {
+		feedinRate, err := feedin.At(time.Now())
+		if feedin != nil && err != nil {
+			site.log.WARN.Printf("feed-in: no matching rate for: %s", time.Now().Format(time.RFC3339))
+		}
+		batteryGridDischargeActive = site.batteryGridDischargeActive(feedinRate)
+	}
+	site.publish(keys.BatteryGridDischargeActive, batteryGridDischargeActive)
+	site.publish(keys.BatteryGridDischargeActive, batteryGridDischargeActive)
+
+	site.updateBatteryMode(batteryGridChargeActive, batteryGridDischargeActive, rate)
 
 	// re-evaluate against the updated loadpoint state
 	site.publishSuggestions()
@@ -1307,7 +1328,7 @@ func (site *Site) update(lp updater) {
 func (site *Site) updatePower(lp updater, state siteState, totalChargePower float64, consumption, feedin api.Rates) {
 	// prioritize if possible
 	var flexiblePower float64
-	if lp != nil && lp.GetMode() == api.ModePV {
+	if lp != nil && loadpoint.SurplusFlexible(lp) {
 		flexiblePower = site.prioritizer.GetChargePowerFlexibility(lp)
 	}
 
