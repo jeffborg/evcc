@@ -2378,7 +2378,7 @@ NO_DIM:
 	lp.publish(keys.Mode, mode)
 
 	// update and publish plan without being short-circuited by modes etc.
-	plannerActive := lp.plannerActive()
+	plannerActive := lp.plannerActive(consumption)
 
 	// update and publish min soc not reached state
 	minSocNotReached := lp.minSocNotReached()
