@@ -282,6 +282,8 @@ export interface State {
   batteryDischargeControl?: boolean;
   /** Home battery is allowed to discharge to the grid (experimental). */
   batteryGridDischarge?: boolean;
+  /** Optional manual p_a override for the optimizer (currency/kWh). */
+  optimizerManualPA?: number | null;
   /** Solar forecast is adjusted to real production data (experimental). */
   solarAdjusted?: boolean;
   /** Price or emission limit for charging the home battery from grid. */
@@ -292,6 +294,8 @@ export interface State {
   batteryGridDischargeLimit?: number | null;
   /** Home battery is currently discharged to the grid. */
   batteryGridDischargeActive?: boolean;
+  /** Recurring optimizer battery SoC reserve goals. */
+  batteryOptimizerSocGoals?: RepeatingPlan[] | null;
   /** A dynamic grid price or CO₂ forecast is configured. */
   smartCostAvailable?: boolean;
   /** Type of the smart charging limit, price based or emission based. */
@@ -1510,6 +1514,7 @@ export interface BatteryDetail {
 export interface OptimizationDetails {
   timestamp: string[]; // Array of ISO timestamp strings
   batteryDetails: BatteryDetail[]; // Array of battery detail objects
+  gridForecastMissing?: boolean[]; // Per-slot flag: grid price filled with fallback rate
 }
 
 // Error response
