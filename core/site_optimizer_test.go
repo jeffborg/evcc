@@ -712,13 +712,20 @@ func TestBatteryRequestDischargeToGrid(t *testing.T) {
 func TestOptimizerPA(t *testing.T) {
 	t.Run("automatic", func(t *testing.T) {
 		site := new(Site)
-		assert.InDelta(t, 0.0891, site.optimizerPA([]float32{0.25, 0.10}), 1e-6)
+		// grid min 0.10 -> 0.10*eta*0.99 = 0.0891 beats export floor 0.02/eta*1.01
+		assert.InDelta(t, 0.0891, site.optimizerPA([]float32{0.25, 0.10}, []float32{0.05, 0.02}), 1e-6)
+	})
+
+	t.Run("export floor", func(t *testing.T) {
+		site := new(Site)
+		// export min 0.30 -> 0.30/eta*1.01 = 0.33667 beats grid 0.10*eta*0.99 = 0.0891
+		assert.InDelta(t, 0.30/eta*1.01, site.optimizerPA([]float32{0.25, 0.10}, []float32{0.40, 0.30}), 1e-6)
 	})
 
 	t.Run("manual override", func(t *testing.T) {
 		manual := 0.33
 		site := &Site{optimizerManualPA: &manual}
-		assert.InDelta(t, 0.00033, site.optimizerPA([]float32{0.25, 0.10}), 1e-9)
+		assert.InDelta(t, 0.00033, site.optimizerPA([]float32{0.25, 0.10}, []float32{0.05, 0.02}), 1e-9)
 	})
 }
 

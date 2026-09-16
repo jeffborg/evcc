@@ -579,8 +579,10 @@ func (site *Site) optimizerRequest(battery []types.Measurement) (optimizer.Optim
 		},
 	}
 
-	// end of horizon Wh value (manual override wins, else derived from the grid min)
-	pa := site.optimizerPA(req.TimeSeries.PN)
+	// end of horizon Wh value: manual override wins, else derived from the grid
+	// min but floored at the export price (charging surplus only stores eta Wh per
+	// Wh, so below pE/eta exporting beats storing)
+	pa := site.optimizerPA(req.TimeSeries.PN, req.TimeSeries.PE)
 
 	details = requestDetails{
 		Timestamps:          asTimestamps(dt, now),
@@ -1501,13 +1503,14 @@ func apiError(resp *optimizer.PostOptimizeChargeScheduleResponse) error {
 }
 
 // optimizerPA returns the end-of-horizon Wh price penalty. A manual override
-// (currency/kWh) wins; otherwise it derives from the cheapest grid slot.
-func (site *Site) optimizerPA(grid []float32) float32 {
+// (currency/kWh) wins; otherwise it derives from the cheapest grid slot, floored
+// at the export price (below pE/eta, exporting surplus beats storing it).
+func (site *Site) optimizerPA(grid, feedin []float32) float32 {
 	if manual := site.GetOptimizerManualPA(); manual != nil {
 		return float32(*manual / 1e3)
 	}
 
-	return lo.Min(grid) * eta * 0.99
+	return max(lo.Min(grid)*eta*0.99, lo.Min(feedin)/eta*1.01)
 }
 
 // applyBatterySocGoals merges the active recurring SoC reserve goals into the
