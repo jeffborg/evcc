@@ -519,16 +519,16 @@ func TestBatteryRequestGridModes(t *testing.T) {
 	capacity, soc := 10.0, 50.0
 	m := types.Measurement{Capacity: &capacity, Soc: &soc}
 
-	req, _ := site.batteryRequest(newBatteryDevice(t, api.BatteryNormal, api.BatteryHold, api.BatteryCharge), m, nil, 8, 15*time.Minute)
+	req, _ := site.batteryRequest(newBatteryDevice(t, api.BatteryNormal, api.BatteryHold, api.BatteryCharge), m, nil, 8, 15*time.Minute, nil)
 	assert.True(t, req.ChargeFromGrid)
 	assert.False(t, req.DischargeToGrid, "grid discharge opt-in must not apply to a battery without discharge mode")
 
-	req, _ = site.batteryRequest(newBatteryDevice(t, api.BatteryNormal, api.BatteryDischarge), m, nil, 8, 15*time.Minute)
+	req, _ = site.batteryRequest(newBatteryDevice(t, api.BatteryNormal, api.BatteryDischarge), m, nil, 8, 15*time.Minute, nil)
 	assert.False(t, req.ChargeFromGrid)
 	assert.True(t, req.DischargeToGrid)
 
 	site.batteryGridDischarge = false
-	req, _ = site.batteryRequest(newBatteryDevice(t, api.BatteryNormal, api.BatteryDischarge), m, nil, 8, 15*time.Minute)
+	req, _ = site.batteryRequest(newBatteryDevice(t, api.BatteryNormal, api.BatteryDischarge), m, nil, 8, 15*time.Minute, nil)
 	assert.False(t, req.DischargeToGrid, "grid discharge requires the opt-in")
 }
 
@@ -772,7 +772,7 @@ func TestBatteryRequestDischargeToGrid(t *testing.T) {
 
 	site := &Site{batteryGridDischarge: true}
 	bc := api.NewMockBatteryController(ctrl)
-	bc.EXPECT().BatteryModes().Return(nil).AnyTimes()
+	bc.EXPECT().BatteryModes().Return([]api.BatteryMode{api.BatteryDischarge}).AnyTimes()
 	var meter api.Meter = &struct {
 		api.Meter
 		api.BatteryController
