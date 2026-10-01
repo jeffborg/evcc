@@ -30,6 +30,8 @@ type API interface {
 	// Meta
 	GetTitle() string
 	SetTitle(string)
+	GetCountry() string
+	SetCountry(string)
 
 	// Config
 	GetGridMeterRef() string
