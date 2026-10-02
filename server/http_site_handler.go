@@ -560,8 +560,10 @@ func restoreDatabase(shutdown func()) http.HandlerFunc {
 			return
 		}
 
-		shutdown()
 		w.WriteHeader(http.StatusNoContent)
+		// flush before shutdown, the process may exit before the handler returns
+		_ = http.NewResponseController(w).Flush()
+		shutdown()
 	}
 }
 
@@ -618,7 +620,9 @@ func resetDatabase(shutdown func()) http.HandlerFunc {
 			return
 		}
 
-		shutdown()
 		w.WriteHeader(http.StatusNoContent)
+		// flush before shutdown, the process may exit before the handler returns
+		_ = http.NewResponseController(w).Flush()
+		shutdown()
 	}
 }
