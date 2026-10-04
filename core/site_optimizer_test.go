@@ -539,7 +539,7 @@ func TestBatteryRequestWithoutSocLimiter(t *testing.T) {
 	capacity, soc := 10.0, 50.0
 	dev := config.NewStaticDevice(config.Named{}, api.Meter(&struct{ api.Meter }{}))
 
-	req, _ := site.batteryRequest(dev, types.Measurement{Capacity: &capacity, Soc: &soc}, nil, 8, 15*time.Minute)
+	req, _ := site.batteryRequest(dev, types.Measurement{Capacity: &capacity, Soc: &soc}, nil, 8, 15*time.Minute, nil)
 
 	assert.Equal(t, float32(0), req.SMin)
 	assert.Equal(t, float32(10000), req.SMax)
