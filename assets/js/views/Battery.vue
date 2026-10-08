@@ -28,6 +28,9 @@
 						:battery="state.battery"
 						:experimental="state.experimental"
 						:country="state.country"
+						:battery-optimizer-soc-goals="batteryOptimizerSocGoals"
+						:optimizerManualPA="optimizerManualPA"
+						:currency="currency"
 					/>
 
 					<Card
@@ -58,7 +61,7 @@ import { defineComponent } from "vue";
 import store from "@/store";
 import settings from "@/settings";
 import api from "@/api";
-import { SMART_COST_TYPE, CURRENCY, type BatteryMeter } from "@/types/evcc";
+import { SMART_COST_TYPE, CURRENCY, type BatteryMeter, type RepeatingPlan } from "@/types/evcc";
 import Header from "../components/Top/Header.vue";
 import Card from "../components/Helper/Card.vue";
 import SmartCostLimit from "../components/Tariff/SmartCostLimit.vue";
@@ -116,6 +119,15 @@ export default defineComponent({
 		evopt() {
 			return this.state.evopt;
 		},
+		currency(): CURRENCY {
+			return this.state.currency || CURRENCY.EUR;
+		},
+		batteryOptimizerSocGoals(): RepeatingPlan[] {
+			return this.state.batteryOptimizerSocGoals || [];
+		},
+		optimizerManualPA(): number | null {
+			return this.state.optimizerManualPA ?? null;
+		},
 		kWhAvailable(): boolean {
 			return this.batteryAvailable && this.devices.every((d) => d.capacity > 0);
 		},
@@ -153,7 +165,7 @@ export default defineComponent({
 				currentLimit: this.gridChargeLimit,
 				lastLimit: settings.lastBatterySmartCostLimit,
 				smartCostType: this.state.smartCostType,
-				currency: this.state.currency || CURRENCY.EUR,
+				currency: this.currency,
 				tariff: this.gridChargeTariff,
 				possible: this.gridChargePossible,
 			};
@@ -176,7 +188,7 @@ export default defineComponent({
 			return {
 				currentLimit: this.gridDischargeLimit,
 				lastLimit: settings.lastBatteryGridDischargeLimit,
-				currency: this.state.currency || CURRENCY.EUR,
+				currency: this.currency,
 				tariff: store.uiForecast.value.feedin,
 				possible: this.gridDischargePossible,
 			};

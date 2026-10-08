@@ -87,6 +87,56 @@ test.describe("battery settings", async () => {
     ).toBeVisible();
   });
 
+  // regression: the view did not pass the goals into the config card, so the
+  // list stayed empty and "add repeating plan" looked like a no-op
+  test("battery reserve goals", async ({ page }) => {
+    await page.goto("/#/battery");
+
+    await expect(page.getByText("Battery reserve goals")).toBeVisible();
+    await expect(page.getByTestId("plan-entry")).toHaveCount(0);
+
+    await page.getByTestId("repeating-plan-add").click();
+    const goal = page.getByTestId("plan-entry");
+    await expect(goal).toHaveCount(1);
+    await expect(goal.getByTestId("repeating-plan-time")).toHaveValue("07:00");
+
+    await goal.getByTestId("repeating-plan-soc").selectOption("40");
+    await goal.getByTestId("repeating-plan-time").fill("21:30");
+    await goal.getByTestId("repeating-plan-active").check();
+
+    // persisted
+    await page.reload();
+    await expect(goal).toHaveCount(1);
+    await expect(goal.getByTestId("repeating-plan-soc")).toHaveValue("40");
+    await expect(goal.getByTestId("repeating-plan-time")).toHaveValue("21:30");
+    await expect(goal.getByTestId("repeating-plan-active")).toBeChecked();
+
+    // a second goal is appended, not replacing the first
+    await page.getByTestId("repeating-plan-add").click();
+    await expect(goal).toHaveCount(2);
+
+    await goal.first().getByRole("button", { name: "Remove" }).click();
+    await expect(goal).toHaveCount(1);
+  });
+
+  // same regression: without the prop the switch and value reset on every reload
+  test("manual p_a value", async ({ page }) => {
+    await page.goto("/#/battery");
+
+    const value = page.getByLabel("p_a value", { exact: true });
+    await expect(value).toBeDisabled();
+
+    await page.getByLabel("Use a manual p_a value for the optimizer.").check();
+    await expect(value).toBeEnabled();
+    await value.fill("5");
+    await value.blur();
+
+    // persisted
+    await page.reload();
+    await expect(page.getByLabel("Use a manual p_a value for the optimizer.")).toBeChecked();
+    await expect(value).toHaveValue("5");
+  });
+
   test("hold mode display", async ({ page }) => {
     await page.goto("/");
     await page.getByTestId("energyflow").click();
