@@ -174,6 +174,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Pre-pull buildkit
+        # Setup Buildx pulls moby/buildkit from Docker Hub with no retry, so a
+        # single transient Hub failure kills the whole release. All three of
+        # 429, 500 and an auth.docker.io timeout were hit on 0.317.0.0. Pull it
+        # here with backoff so Setup Buildx finds the image already local.
+        # No non-Hub mirror of moby/buildkit exists, unlike the base images.
+        # If the action ever changes its default image this becomes a harmless
+        # no-op rather than a failure.
+        run: |
+          for i in 1 2 3 4 5; do
+            if docker pull --quiet moby/buildkit:buildx-stable-1; then exit 0; fi
+            echo "::warning::buildkit pull attempt $i failed, retrying"
+            sleep $((i * 15))
+          done
+          echo "::error::could not pull moby/buildkit after 5 attempts"
+          exit 1
+
       - name: Setup Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
