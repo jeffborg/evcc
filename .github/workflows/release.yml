@@ -40,11 +40,28 @@ jobs:
       contents: read
       packages: write
 
+    env:
+      # surfaced at job level because the secrets context is not available to a
+      # step's `if`; lets the Docker Hub login skip itself when unconfigured
+      DOCKER_USER: ${{ secrets.DOCKER_USER }}
+
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Login to Docker Hub
+        # The Dockerfile's base images (golang, alpine) and buildkit itself are
+        # pulled from Docker Hub. Anonymous pulls share the runner IP's quota and
+        # hit "429 Too Many Requests"; authenticated pulls get their own, far
+        # higher quota. Must run before Setup Buildx, which pulls moby/buildkit.
+        # Skipped when no credentials are configured, so forks still build.
+        if: env.DOCKER_USER != ''
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASS }}
 
       - name: Login
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
