@@ -2454,7 +2454,7 @@ NO_DIM:
 	lp.publish(keys.OptimizerControlled, lp.optimizerControlled())
 
 	// update and publish plan without being short-circuited by modes etc.
-	plannerActive := lp.plannerActive()
+	plannerActive := lp.plannerActive(consumption)
 
 	// the optimizer schedules the plan itself, the planner only backstops it.
 	// A stalled optimizer has no suggestion and releases the planner again.
