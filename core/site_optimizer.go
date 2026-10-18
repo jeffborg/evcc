@@ -135,7 +135,7 @@ type batteryResult struct {
 	Empty time.Time `json:"empty,omitzero"`
 }
 
-// suggestionThreshold ignores numerical noise around zero power (W)
+// suggestionThreshold ignores numerical noise in power comparisons (W)
 const suggestionThreshold = 50
 
 // advisory actions for a loadpoint/vehicle slot; battery actions use api.BatteryMode
@@ -176,27 +176,42 @@ func suggestionEvent(detail batteryDetail, s types.Suggestion) messenger.Event {
 // Because the optimization is linear, the slot is at an operating-range extreme, so it
 // maps cleanly onto the discrete battery mode / loadpoint intent that control would later apply.
 // An idle battery is interpreted from the grid flow: importing means discharge is withheld
-// (hold), exporting means charging is withheld (holdcharge).
-func currentSlotSuggestion(detail batteryDetail, res optimizer.BatteryResult, slot int, gridImporting, gridExporting bool, slotHours float64) types.Suggestion {
+// (hold), exporting means charging is withheld (holdcharge). At its soc bound nothing is
+// withheld, the bound does it, so the battery stays in normal mode.
+func currentSlotSuggestion(detail batteryDetail, req optimizer.BatteryConfig, res optimizer.BatteryResult, slot int, gridImport, gridExport float32, slotHours float64) types.Suggestion {
 	if slot < 0 || slotHours <= 0 || slot >= len(res.ChargingPower) || slot >= len(res.DischargingPower) {
 		return types.Suggestion{}
 	}
 
 	charge := float64(res.ChargingPower[slot]) / slotHours
 	discharge := float64(res.DischargingPower[slot]) / slotHours
+	gridImporting := float64(gridImport)/slotHours > suggestionThreshold
+	gridExporting := float64(gridExport)/slotHours > suggestionThreshold
 
-	s := types.Suggestion{Charge: charge, Discharge: discharge}
+	s := types.Suggestion{
+		Charge:    charge,
+		Discharge: discharge,
+		Grid:      float64(gridImport-gridExport) / slotHours,
+	}
 
 	if detail.Type == batteryTypeBattery {
 		idle := charge <= suggestionThreshold && discharge <= suggestionThreshold
+
+		var empty, full bool
+		if slot < len(res.StateOfCharge) {
+			soc := res.StateOfCharge[slot]
+			empty = soc <= req.SMin
+			full = req.SMax > 0 && soc >= req.SMax
+		}
+
 		switch {
 		case charge > suggestionThreshold && gridImporting:
 			// charging while importing means grid charging
 			s.Action = api.BatteryCharge.String()
-		case idle && gridImporting:
+		case idle && gridImporting && !empty:
 			// idle while importing: discharge is deliberately withheld
 			s.Action = api.BatteryHold.String()
-		case idle && gridExporting:
+		case idle && gridExporting && !full:
 			// idle while exporting: surplus is exported instead of charged
 			s.Action = api.BatteryHoldCharge.String()
 		case discharge > suggestionThreshold && gridExporting:
@@ -227,6 +242,41 @@ func loadpointCurrentAction(lp *Loadpoint) string {
 		return actionCharge
 	}
 	return actionStop
+}
+
+// suggestionMaxAge releases a loadpoint gated by a solve the site stopped
+// refreshing; the site itself expires its cached solve in reapplySuggestions
+const suggestionMaxAge = 2 * tariff.SlotDuration
+
+// optimizerPlan is a loadpoint's charging schedule from the last solve
+type optimizerPlan struct {
+	rates  api.Rates // charging slots valued at the grid import price
+	energy []float64 // charge energy per slot, Wh
+}
+
+// loadpointPlan extracts the remaining charging slots of a battery result
+func loadpointPlan(res optimizer.BatteryResult, prices []float32, schedule optimizerSchedule, now time.Time) optimizerPlan {
+	var plan optimizerPlan
+
+	for slot := range schedule.endsAfter(now) {
+		if slot >= len(res.ChargingPower) || slot >= len(prices) {
+			break
+		}
+
+		energy := float64(res.ChargingPower[slot])
+		if energy/schedule.duration(slot).Hours() <= suggestionThreshold {
+			continue
+		}
+
+		plan.energy = append(plan.energy, energy)
+		plan.rates = append(plan.rates, api.Rate{
+			Start: schedule.timestamps[slot],
+			End:   schedule.end(slot),
+			Value: float64(prices[slot]) * 1e3, // per Wh to per kWh
+		})
+	}
+
+	return plan
 }
 
 // setSuggestions replaces the suggestions applied on each publish
@@ -262,18 +312,23 @@ func (site *Site) suggestion(key, currentAction string) *types.Suggestion {
 	return &s
 }
 
-// publishSuggestions publishes the loadpoints' suggestions
+// publishSuggestions publishes the loadpoints' suggestions and hands them to the
+// loadpoints, where they act as start/stop gate while the optimizer is in control
 func (site *Site) publishSuggestions() {
 	for id, lp := range site.loadpoints {
 		if lp == nil {
 			continue
 		}
 
+		s := site.suggestion(loadpointKey(id), loadpointCurrentAction(lp))
+
 		var val any
-		if s := site.suggestion(loadpointKey(id), loadpointCurrentAction(lp)); s != nil {
+		if s != nil {
 			val = *s
 		}
 		site.publishLoadpoint(id, keys.Suggestion, val)
+
+		lp.setSuggestion(s)
 	}
 }
 
@@ -384,12 +439,17 @@ const slotsPerHour = float64(time.Hour / tariff.SlotDuration)
 // startup); the slot gate is left open so the next cycle retries.
 var errOptimizerNotReady = errors.New("battery measurements not ready")
 
+// optimizerInterval is the refresh cadence in automatic mode. It divides the
+// slot duration so every slot starts on a fresh result. Advisory suggestions
+// only need one run per slot.
+const optimizerInterval = 5 * time.Minute
+
 // triggerOptimizer forces an immediate optimizer re-run (bypassing the slot gate)
 // so a changed setting or a new price takes effect without waiting for the next
 // slot. It is single-flight: optimizerUpdateAsync records a pending re-run if a
 // run is already in progress, so the trigger is never lost.
 func (site *Site) triggerOptimizer() {
-	go site.optimizerUpdateAsync(0)
+	go site.optimizerUpdateAsync(true)
 }
 
 // rerunIfPending re-triggers the optimizer when a trigger arrived during a run.
@@ -424,15 +484,16 @@ func (site *Site) optimizerTariffsChanged() bool {
 	return changed
 }
 
-// optimizerUpdateAsync advances the optimizer. Pass 0 to force an immediate run
-// (a changed setting or explicit trigger). Pass a positive minAge for the regular
-// per-cycle call from the site loop, which self-gates: it re-runs immediately when
-// the planner+feedin price inputs change (deferring a single cycle first so both -
-// separate MQTT topics - settle) and otherwise runs at most once per minAge (the
-// slot backstop). It is a no-op when the optimizer is not active or a run is
-// already in progress; the pending flag ensures an overlapping trigger re-runs
-// afterwards (see rerunIfPending).
-func (site *Site) optimizerUpdateAsync(minAge time.Duration) {
+// optimizerUpdateAsync runs the optimizer unless the last run is younger than
+// the mode's interval. Pass force to run regardless, e.g. when a changed setting
+// should take effect immediately. The regular per-cycle call (force=false) also
+// self-gates on the price inputs: it re-runs immediately when planner+feedin
+// rates change (deferring a single cycle first so both - separate MQTT topics -
+// settle) and otherwise runs at most once per interval (the slot backstop). It
+// is a no-op when the optimizer is not active or a run is already in progress;
+// the pending flag ensures an overlapping trigger re-runs afterwards
+// (see rerunIfPending).
+func (site *Site) optimizerUpdateAsync(force bool) {
 	if !sponsor.IsAuthorized() || !optimizerEnabled() {
 		return
 	}
@@ -446,11 +507,16 @@ func (site *Site) optimizerUpdateAsync(minAge time.Duration) {
 	defer site.rerunIfPending()
 	defer site.optimizerMu.Unlock()
 
-	if minAge == 0 {
+	interval := tariff.SlotDuration
+	if site.Automatic() {
+		interval = optimizerInterval
+	}
+
+	if force {
 		// forced run: keep the gate open so a not-ready run is retried next cycle
 		site.optimizerUpdated = time.Time{}
 	} else {
-		// regular per-cycle call: gate on price changes and the slot backstop. All
+		// regular per-cycle call: gate on price changes and the interval backstop. All
 		// tariff state (dirty flag, fingerprint) is read/written only here, under
 		// optimizerMu, so it needs no separate synchronization.
 		switch {
@@ -466,8 +532,8 @@ func (site *Site) optimizerUpdateAsync(minAge time.Duration) {
 			// (separate MQTT topics) both settle, then run via the case above.
 			site.optimizerTariffDirty = true
 			return
-		case time.Since(site.optimizerUpdated) < minAge:
-			// backstop: static prices re-run at most once per slot; not due yet
+		case time.Since(site.optimizerUpdated) < interval:
+			// backstop: static prices re-run at most once per interval; not due yet
 			return
 		}
 	}
@@ -486,11 +552,10 @@ func (site *Site) optimizerUpdateAsync(minAge time.Duration) {
 
 		site.optimizerUpdated = time.Now()
 
+		// a failed run keeps the advice: dropping it would release the controlled
+		// devices for one cycle. reapplySuggestions expires the cached solve.
 		if err != nil {
 			site.log.ERROR.Println("optimizer:", err)
-
-			// stale advice must not linger
-			site.clearSuggestions()
 		}
 	}()
 
@@ -820,8 +885,13 @@ func (site *Site) reapplySuggestions(now time.Time) {
 func (site *Site) applyOptimizerResult(req optimizer.OptimizationInput, details requestDetails, res optimizer.OptimizationResult, schedule optimizerSchedule, now time.Time, completed time.Time) {
 	slot := schedule.activeSlot(now)
 	slotHours := schedule.duration(slot).Hours()
-	gridImporting := slot >= 0 && slot < len(res.GridImport) && res.GridImport[slot] > 0
-	gridExporting := slot >= 0 && slot < len(res.GridExport) && res.GridExport[slot] > 0
+	var gridImport, gridExport float32
+	if slot >= 0 && slot < len(res.GridImport) {
+		gridImport = res.GridImport[slot]
+	}
+	if slot >= 0 && slot < len(res.GridExport) {
+		gridExport = res.GridExport[slot]
+	}
 
 	var batteries []batteryResult
 	suggestions := make(map[string]types.Suggestion, len(req.Batteries))
@@ -840,7 +910,7 @@ func (site *Site) applyOptimizerResult(req optimizer.OptimizationInput, details 
 			}),
 		})
 
-		suggestion := currentSlotSuggestion(detail, batRes, slot, gridImporting, gridExporting, slotHours)
+		suggestion := currentSlotSuggestion(detail, batReq, batRes, slot, gridImport, gridExport, slotHours)
 		if suggestion.Action == "" {
 			continue
 		}
@@ -848,6 +918,16 @@ func (site *Site) applyOptimizerResult(req optimizer.OptimizationInput, details 
 		// uncontrollable devices can't act on a suggestion
 		if key := detail.key(); key != "" && detail.controllable {
 			suggestions[key] = suggestion
+
+			// the schedule is gated by the suggestion, so it needs no clearing.
+			// Without the plan goal in the model its slots are no plan.
+			if detail.loadpoint != nil {
+				var plan optimizerPlan
+				if batReq.SGoal != nil {
+					plan = loadpointPlan(batRes, req.TimeSeries.PN, schedule, now)
+				}
+				site.loadpoints[*detail.loadpoint].setOptimizerPlan(plan)
+			}
 		}
 	}
 
@@ -1383,7 +1463,8 @@ func (site *Site) applyPlanGoal(lp loadpoint.API, bat *optimizer.BatteryConfig, 
 	if vehicle := lp.GetVehicle(); socBased && vehicle != nil {
 		goal *= vehicle.Capacity() * 10
 	} else {
-		goal *= 1000 // Wh
+		// energy plans count from the energy charged since the plan was set, on top of the current state
+		goal = float64(bat.SInitial) + lp.GetPlanRemainingEnergy()*1e3 // Wh
 	}
 
 	ts := lp.EffectivePlanTime()
