@@ -25,6 +25,7 @@ import (
 	"github.com/evcc-io/evcc/messenger"
 	"github.com/evcc-io/evcc/tariff"
 	"github.com/evcc-io/evcc/util/config"
+	"github.com/evcc-io/evcc/util/grid"
 	"github.com/evcc-io/evcc/util/request"
 	"github.com/evcc-io/evcc/util/sponsor"
 	optimizer "github.com/evcc-io/optimizer/client"
@@ -1188,6 +1189,17 @@ func (site *Site) loadpointRequest(lp loadpoint.API, minLen int, firstSlotDurati
 	}
 
 	return bat, detail
+}
+
+// circuitMaxImport returns the circuit's import limit from max power incl. HEMS limit and three-phase max current, 0 if unlimited
+func circuitMaxImport(c api.Circuit) float64 {
+	res := c.EffectiveMaxPower()
+	if current := c.GetMaxCurrent(); current > 0 {
+		if power := grid.CurrentToPower(current, 3); res <= 0 || power < res {
+			res = power
+		}
+	}
+	return res
 }
 
 // clearDemandWhenFull zeroes the charge demand from the slot the accumulated energy fills the
