@@ -156,11 +156,13 @@
       "template": "Manufacturer",
       "titleAdd": {
         "charging": "Add Charger",
-        "heating": "Add Heating Device"
+        "heating": "Add Heating Device",
+        "switch": "Add Switchable Socket"
       },
       "titleEdit": {
         "charging": "Edit Charger",
-        "heating": "Edit Heating Device"
+        "heating": "Edit Heating Device",
+        "switch": "Edit Switchable Socket"
       },
       "type": {
         "custom": {
@@ -235,6 +237,15 @@
       "title": "Curtailment",
       "titleAdd": "Add Curtailment Device",
       "titleEdit": "Edit Curtailment Device"
+    },
+    "deviceRef": {
+      "add": {
+        "charger": "Add charger",
+        "meter": "Add meter",
+        "switch": "Add switchable socket",
+        "tariff": "Add tariff"
+      },
+      "noNesting": "Nesting is limited to one level. Please pick another option."
     },
     "deviceValue": {
       "activeClients": "Active clients",
@@ -314,8 +325,16 @@
           "returnEnergy": "Discharged"
         },
         "consumer": {
+          "chargeStatusB": "standby",
+          "chargeStatusC": "heating",
           "energy": "Consumed",
           "returnEnergy": "Produced"
+        },
+        "continuous": {
+          "chargeStatusB": "normal",
+          "chargeStatusC": "boost",
+          "dimmed": "Dimmed",
+          "enabled": "Boosted"
         },
         "grid": {
           "energy": "Imported",
@@ -501,7 +520,7 @@
         "charging": "Add charger",
         "heating": "Add heating device"
       },
-      "addMeter": "Add dedicated energy meter",
+      "addMeter": "Add meter",
       "advancedConfig": "Advanced configuration",
       "cancel": "Cancel",
       "chargerError": {
@@ -540,7 +559,7 @@
       "electricalSubtitle": "When in doubt, ask your electrician.",
       "electricalTitle": "Electrics",
       "energyMeterHelp": "Additional meter if the charger doesn't have an integrated one.",
-      "energyMeterLabel": "Energy meter",
+      "energyMeterLabel": "Dedicated energy meter",
       "demandPredictor": {
         "daily": {
           "description": "Average of recent days. For devices with the same pattern every day.",
@@ -1145,6 +1164,7 @@
       "template": "Provider",
       "title": "Tariffs & forecasts",
       "titleChoice": "What Do You Want To Add?",
+      "titleSub": "Sub tariff",
       "type": {
         "co2": "CO₂ Intensity",
         "feedIn": "Grid Export Price",
@@ -1599,7 +1619,8 @@
         "continuousCo2Description": "Selects the cleanest uninterrupted series of slots.",
         "continuousPriceDescription": "Selects the cheapest uninterrupted series of slots.",
         "disabledDescription": "Requires a dynamic tariff or CO₂ forecast.",
-        "label": "Optimization"
+        "label": "Optimization",
+        "optimizerDescription": "The {optimizer} selects the cheapest slots. May result in multiple starts and stops."
       },
       "planNumber": "Plan {number}",
       "precondition": {
