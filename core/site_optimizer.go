@@ -488,18 +488,10 @@ const optimizerInterval = 5 * time.Minute
 
 // triggerOptimizer forces an immediate optimizer re-run (bypassing the slot gate)
 // so a changed setting or a new price takes effect without waiting for the next
-// slot. It is single-flight: optimizerUpdateAsync records a pending re-run if a
-// run is already in progress, so the trigger is never lost.
+// slot. It is single-flight: optimizerUpdateAsync records a forced re-run if a
+// run is already in progress, so the trigger is never lost (see optimizerUnlock).
 func (site *Site) triggerOptimizer() {
 	go site.optimizerUpdateAsync(true)
-}
-
-// rerunIfPending re-triggers the optimizer when a trigger arrived during a run.
-// Called after optimizerUpdateAsync releases the lock so the re-run can proceed.
-func (site *Site) rerunIfPending() {
-	if site.optimizerPending.Swap(false) {
-		site.triggerOptimizer()
-	}
 }
 
 // optimizerTariffsChanged reports whether the planner or feedin tariff rates
@@ -532,22 +524,25 @@ func (site *Site) optimizerTariffsChanged() bool {
 // self-gates on the price inputs: it re-runs immediately when planner+feedin
 // rates change (deferring a single cycle first so both - separate MQTT topics -
 // settle) and otherwise runs at most once per interval (the slot backstop). It
-// is a no-op when the optimizer is not active or a run is already in progress;
-// the pending flag ensures an overlapping trigger re-runs afterwards
-// (see rerunIfPending).
+// is a no-op when the optimizer is not active. A forced trigger during a running
+// update re-runs once that update has finished.
 func (site *Site) optimizerUpdateAsync(force bool) {
 	if !sponsor.IsAuthorized() || !optimizerEnabled() {
 		return
 	}
 
+	// store before locking: either we get the lock, or the holder sees the trigger on unlock
+	if force {
+		site.optimizerRerun.Store(true)
+	}
+
 	if !site.optimizerMu.TryLock() {
-		site.optimizerPending.Store(true) // run in progress: re-run after it (see rerunIfPending)
 		return
 	}
-	// re-run if a trigger arrived while we held the lock (deferred LIFO, so this
-	// runs after optimizerMu.Unlock below, letting the re-run acquire the lock)
-	defer site.rerunIfPending()
-	defer site.optimizerMu.Unlock()
+	defer site.optimizerUnlock()
+
+	// false if a run that started after the trigger already served it
+	force = site.optimizerRerun.Swap(false)
 
 	interval := tariff.SlotDuration
 	if site.Automatic() {
@@ -894,13 +889,22 @@ func (site *Site) setLastOptimizerSolve(solve *optimizerSolve) {
 	site.lastOptimizerSolve = solve
 }
 
+// optimizerUnlock releases optimizerMu and re-runs for a forced trigger that arrived while it was held
+func (site *Site) optimizerUnlock() {
+	site.optimizerMu.Unlock()
+
+	if site.optimizerRerun.Load() {
+		go site.optimizerUpdateAsync(false)
+	}
+}
+
 // reapplySuggestions re-derives the last solve's suggestions for the slot covering now
 // without a new solve. TryLock so it never overwrites a fresher concurrent solve.
 func (site *Site) reapplySuggestions(now time.Time) {
 	if !site.optimizerMu.TryLock() {
 		return
 	}
-	defer site.optimizerMu.Unlock()
+	defer site.optimizerUnlock()
 
 	site.RLock()
 	last := site.lastOptimizerSolve

@@ -132,7 +132,7 @@ type Site struct {
 
 	optimizerMu          sync.Mutex  // guards optimizer runs
 	optimizerUpdated     time.Time   // last optimizer run, guarded by optimizerMu
-	optimizerPending     atomic.Bool // a trigger arrived while a run held the lock; re-run afterwards
+	optimizerRerun       atomic.Bool // forced trigger arrived during a run, re-run when done
 	optimizerTariffHash  uint64      // fingerprint of the planner+feedin rates last seen by the update loop
 	optimizerTariffDirty bool        // a tariff change is pending; deferred one cycle so planner+feedin settle
 

@@ -22,8 +22,8 @@ import (
 )
 
 // TestOptimizerTriggerNotDroppedDuringRun verifies triggerOptimizer records a
-// pending re-run instead of silently dropping the trigger when a run is already
-// in progress, and that rerunIfPending consumes that flag afterwards.
+// forced re-run instead of silently dropping the trigger when a run is already
+// in progress, and that optimizerUnlock consumes that flag afterwards.
 func TestOptimizerTriggerNotDroppedDuringRun(t *testing.T) {
 	// authorize sponsor + enable the optimizer so triggerOptimizer runs its body
 	require.NoError(t, db.NewInstance("sqlite", ":memory:"))
@@ -36,22 +36,23 @@ func TestOptimizerTriggerNotDroppedDuringRun(t *testing.T) {
 		settings.SetBool(keys.Optimizer, false)
 	})
 
-	site := &Site{log: util.NewLogger("test")}
-	site.optimizerPending.Store(false)
+	// empty tariffs so the run below has no price inputs and stays local
+	site := &Site{log: util.NewLogger("test"), tariffs: new(tariff.Tariffs)}
+	site.optimizerRerun.Store(false)
 
 	// hold the optimizer lock to simulate an in-flight run
 	require.True(t, site.optimizerMu.TryLock(), "optimizer lock should be free at test start")
-	defer site.optimizerMu.Unlock()
 
 	// a forced run arriving during the in-flight run must be recorded, not dropped
 	site.optimizerUpdateAsync(true)
-	assert.True(t, site.optimizerPending.Load(), "trigger during a run must set the pending flag")
+	assert.True(t, site.optimizerRerun.Load(), "trigger during a run must set the rerun flag")
 
-	// the post-run hook consumes the flag (unauthorized keeps triggerOptimizer a
-	// no-op so no real run is launched from the test)
-	sponsor.Subject = ""
-	site.rerunIfPending()
-	assert.False(t, site.optimizerPending.Load(), "rerunIfPending must consume the pending flag")
+	// the in-flight run finishes: optimizerUnlock re-dispatches for the recorded
+	// trigger. Call the re-run synchronously instead - without batteries it is a
+	// no-op - and verify it consumes the flag.
+	site.optimizerMu.Unlock()
+	site.optimizerUpdateAsync(false)
+	assert.False(t, site.optimizerRerun.Load(), "the re-run must consume the rerun flag")
 }
 
 // fakeRatesTariff is a minimal api.Tariff returning fixed rates for tests.
@@ -1538,4 +1539,28 @@ func TestCircuitMaxImport(t *testing.T) {
 
 		assert.Equal(t, tc.expected, circuitMaxImport(c), "power %.0f current %.0f", tc.power, tc.current)
 	}
+}
+
+// TestOptimizerRerunAfterBusy verifies that a forced trigger arriving during a run is not dropped
+func TestOptimizerRerunAfterBusy(t *testing.T) {
+	enableAutomatic(t)
+	site := &Site{log: util.NewLogger("foo")}
+
+	// run in progress: forced trigger is remembered, regular one is not
+	site.optimizerMu.Lock()
+	site.optimizerUpdateAsync(false)
+	assert.False(t, site.optimizerRerun.Load())
+	site.optimizerUpdateAsync(true)
+	assert.True(t, site.optimizerRerun.Load())
+
+	// unlock re-runs on its own, despite the closed interval gate
+	last := time.Now().Add(-time.Second)
+	site.optimizerUpdated = last
+	site.optimizerUnlock()
+	assert.Eventually(t, func() bool { return !site.optimizerRerun.Load() }, time.Second, time.Millisecond)
+
+	// the re-run holds the lock from before consuming the trigger until done
+	site.optimizerMu.Lock()
+	defer site.optimizerMu.Unlock()
+	assert.True(t, site.optimizerUpdated.After(last), "pending trigger must bypass interval gate")
 }
