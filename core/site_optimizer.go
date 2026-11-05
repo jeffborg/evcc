@@ -608,6 +608,12 @@ func (site *Site) optimizerRequest(battery []types.Measurement) (optimizer.Optim
 	solarTariff := site.GetTariff(api.TariffUsageSolar)
 	solar := currentRates(solarTariff)
 
+	// a configured but failing forecast is not a site without pv: a plan without sun
+	// holds the battery for days. failing keeps the last plan until it expires.
+	if solarTariff != nil && len(solar) == 0 {
+		return req, details, errors.New("solar forecast unavailable")
+	}
+
 	planner := currentRates(site.GetTariff(api.TariffUsagePlanner))
 	feedIn := feedInRates(site.GetTariff(api.TariffUsageFeedIn), planner)
 
@@ -615,8 +621,7 @@ func (site *Site) optimizerRequest(battery []types.Measurement) (optimizer.Optim
 	if plannerLen := rateHorizonSlots(planner); plannerLen > 0 {
 		minLen = min(minLen, plannerLen)
 	}
-	// exclude empty solar forecast from minLen
-	if solarTariff != nil && len(solar) > 0 {
+	if solarTariff != nil {
 		minLen = min(minLen, len(solar))
 	}
 
@@ -665,9 +670,9 @@ func (site *Site) optimizerRequest(battery []types.Measurement) (optimizer.Optim
 	// heating loadpoints add their forecast demand on top of the measured base load
 	heaters := site.addHeatingDemand(gt, minLen)
 
-	// allow empty solar forecast
+	// sites without solar forecast plan without pv
 	ft := lo.RepeatBy(minLen, func(i int) float32 { return float32(0) })
-	if solarTariff != nil && len(solar) > 0 {
+	if solarTariff != nil {
 		solarEnergy, err := solarRatesToEnergy(solar)
 		if err != nil {
 			return req, details, err
