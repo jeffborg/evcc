@@ -458,6 +458,16 @@ type demandDetail struct {
 	Values []float32  `json:"values"`
 }
 
+// endOfHorizonValue is the Wh value of energy left in storage at the end of the horizon, floored
+// at pE/eta for storage that can export: charging surplus only stores eta Wh per Wh
+func endOfHorizonValue(pN, pE []float32, eta float32, canExport bool) float32 {
+	pa := lo.Min(pN) * eta * 0.99
+	if canExport {
+		pa = max(pa, lo.Min(pE)/eta*1.01)
+	}
+	return pa
+}
+
 // optimizerBattery pairs a battery request entry with its device detail
 type optimizerBattery struct {
 	cfg    optimizer.BatteryConfig
@@ -697,11 +707,6 @@ func (site *Site) optimizerRequest(battery []types.Measurement) (optimizer.Optim
 		},
 	}
 
-	// end of horizon Wh value: manual override wins, else derived from the grid
-	// min but floored at the export price (charging surplus only stores eta Wh per
-	// Wh, so below pE/eta exporting beats storing)
-	pa := site.optimizerPA(req.TimeSeries.PN, req.TimeSeries.PE)
-
 	// individual profiles summarized into Gt, for the debug view
 	details = requestDetails{
 		Timestamps: asTimestamps(dt, now),
@@ -784,7 +789,8 @@ func (site *Site) optimizerRequest(battery []types.Measurement) (optimizer.Optim
 	}
 
 	for _, b := range batteries {
-		b.cfg.PA = pa
+		// vehicles cannot export
+		b.cfg.PA = site.optimizerPA(req.TimeSeries.PN, req.TimeSeries.PE, b.detail.loadpoint == nil)
 		req.Batteries = append(req.Batteries, b.cfg)
 		details.BatteryDetails = append(details.BatteryDetails, b.detail)
 	}
@@ -1006,7 +1012,8 @@ func (site *Site) applyOptimizerResult(req optimizer.OptimizationInput, details 
 		}
 
 		if detail.loadpoint != nil {
-			suggestion.Battery = batteryDischarge
+			suggestion.BatteryDischarge = batteryDischarge
+			suggestion.BatteryCharge = batteryCharge
 		}
 
 		// uncontrollable devices can't act on a suggestion
@@ -1877,14 +1884,14 @@ func apiError(resp *optimizer.PostOptimizeChargeScheduleResponse) error {
 }
 
 // optimizerPA returns the end-of-horizon Wh price penalty. A manual override
-// (currency/kWh) wins; otherwise it derives from the cheapest grid slot, floored
-// at the export price (below pE/eta, exporting surplus beats storing it).
-func (site *Site) optimizerPA(grid, feedin []float32) float32 {
+// (currency/kWh) wins; otherwise it derives from the cheapest grid slot via
+// endOfHorizonValue, floored at the export price for storage that can export.
+func (site *Site) optimizerPA(grid, feedin []float32, canExport bool) float32 {
 	if manual := site.GetOptimizerManualPA(); manual != nil {
 		return float32(*manual / 1e3)
 	}
 
-	return max(lo.Min(grid)*eta*0.99, lo.Min(feedin)/eta*1.01)
+	return endOfHorizonValue(grid, feedin, eta, canExport)
 }
 
 // applyBatterySocGoals merges the active recurring SoC reserve goals into the
