@@ -919,6 +919,27 @@ func TestOptimizerChargingStrategy(t *testing.T) {
 	assert.Equal(t, "attenuate_grid_peaks", site.GetOptimizerChargingStrategy())
 }
 
+func TestEndOfHorizonValue(t *testing.T) {
+	const eta = 0.9
+
+	for _, tc := range []struct {
+		name      string
+		pN, pE    float32
+		canExport bool
+		want      float32
+	}{
+		{"battery, export below import", 0.3, 0.08, true, 0.3 * eta * 0.99},
+		{"battery, export above import", 0.3, 0.33, true, 0.33 / eta * 1.01},
+		{"vehicle, export below import", 0.3, 0.08, false, 0.3 * eta * 0.99},
+		{"vehicle, export above import", 0.3, 0.33, false, 0.3 * eta * 0.99},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := endOfHorizonValue([]float32{tc.pN, 2 * tc.pN}, []float32{tc.pE, 2 * tc.pE}, eta, tc.canExport)
+			assert.InDelta(t, tc.want, got, 1e-6)
+		})
+	}
+}
+
 func TestGridExportLimit(t *testing.T) {
 	site := &Site{log: util.NewLogger("foo")}
 
@@ -1011,19 +1032,25 @@ func TestOptimizerPA(t *testing.T) {
 	t.Run("automatic", func(t *testing.T) {
 		site := new(Site)
 		// grid min 0.10 -> 0.10*eta*0.99 = 0.0891 beats export floor 0.02/eta*1.01
-		assert.InDelta(t, 0.0891, site.optimizerPA([]float32{0.25, 0.10}, []float32{0.05, 0.02}), 1e-6)
+		assert.InDelta(t, 0.0891, site.optimizerPA([]float32{0.25, 0.10}, []float32{0.05, 0.02}, true), 1e-6)
 	})
 
 	t.Run("export floor", func(t *testing.T) {
 		site := new(Site)
 		// export min 0.30 -> 0.30/eta*1.01 = 0.33667 beats grid 0.10*eta*0.99 = 0.0891
-		assert.InDelta(t, 0.30/eta*1.01, site.optimizerPA([]float32{0.25, 0.10}, []float32{0.40, 0.30}), 1e-6)
+		assert.InDelta(t, 0.30/eta*1.01, site.optimizerPA([]float32{0.25, 0.10}, []float32{0.40, 0.30}, true), 1e-6)
+	})
+
+	t.Run("vehicle ignores export floor", func(t *testing.T) {
+		site := new(Site)
+		// export min 0.30 would beat the grid floor, but a vehicle cannot export
+		assert.InDelta(t, 0.0891, site.optimizerPA([]float32{0.25, 0.10}, []float32{0.40, 0.30}, false), 1e-6)
 	})
 
 	t.Run("manual override", func(t *testing.T) {
 		manual := 0.33
 		site := &Site{optimizerManualPA: &manual}
-		assert.InDelta(t, 0.00033, site.optimizerPA([]float32{0.25, 0.10}, []float32{0.05, 0.02}), 1e-9)
+		assert.InDelta(t, 0.00033, site.optimizerPA([]float32{0.25, 0.10}, []float32{0.05, 0.02}, true), 1e-9)
 	})
 }
 

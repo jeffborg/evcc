@@ -153,6 +153,11 @@ func (lp *Loadpoint) EffectivePlan(planTime time.Time, requiredDuration time.Dur
 	return lp.GetPlan(planTime, requiredDuration, strategy.Precondition, strategy.Continuous), 0, false
 }
 
+// fullSocPlanContinues continues an active 100% plan as long as the vehicle is connected
+func (lp *Loadpoint) fullSocPlanContinues(goal float64, isSocBased bool) bool {
+	return lp.planActive && isSocBased && goal == 100
+}
+
 // plannerRateGap reports whether the planner tariff is defined but has no rate
 // slot covering t - e.g. a demand window intentionally left undefined. Planner
 // rates are forward-pruned (slots before the current period are dropped), so a
@@ -220,8 +225,7 @@ func (lp *Loadpoint) plannerActive(plannerRates ...api.Rates) (active bool) {
 	maxPower := lp.EffectiveMaxPower()
 	requiredDuration := lp.GetPlanRequiredDuration(goal, maxPower)
 	if requiredDuration <= 0 {
-		// continue a 100% plan as long as the vehicle is connected
-		if lp.planActive && isSocBased && goal == 100 {
+		if lp.fullSocPlanContinues(goal, isSocBased) {
 			return true
 		}
 		lp.log.DEBUG.Println("!! plan: required duration 0")
