@@ -3,9 +3,12 @@ package core
 import (
 	"cmp"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
+	"math"
 	"net/http"
 	"os"
 	"slices"
@@ -27,7 +30,7 @@ const (
 	eta = 0.9
 
 	// batteryPower is the default power of the battery in W
-	batteryPower = 6000
+	batteryPower = 10000
 )
 
 // optimizerChargingStrategies are the valid grid charging strategies; the first
@@ -137,11 +140,47 @@ var errOptimizerNotReady = errors.New("battery measurements not ready")
 // only need one run per slot.
 const optimizerInterval = 5 * time.Minute
 
+// triggerOptimizer forces an immediate optimizer re-run (bypassing the slot gate)
+// so a changed setting or a new price takes effect without waiting for the next
+// slot. It is single-flight: optimizerUpdateAsync records a forced re-run if a
+// run is already in progress, so the trigger is never lost (see optimizerUnlock).
+func (site *Site) triggerOptimizer() {
+	go site.optimizerUpdateAsync(true)
+}
+
+// optimizerTariffsChanged reports whether the planner or feedin tariff rates
+// changed since the last call, updating the stored fingerprint. These are the
+// optimizer's price inputs (import via planner, export via feedin). A new price
+// push (e.g. over MQTT) flips the rate values; a slot boundary prunes past rates
+// - either way the fingerprint changes. Called from optimizerUpdateAsync under
+// the optimizer mutex (the only reader/writer of the fingerprint), so it needs
+// no lock of its own.
+func (site *Site) optimizerTariffsChanged() bool {
+	h := fnv.New64a()
+	var buf [16]byte
+	for _, u := range []api.TariffUsage{api.TariffUsagePlanner, api.TariffUsageFeedIn} {
+		for _, r := range tariff.Rates(site.GetTariff(u)) {
+			binary.LittleEndian.PutUint64(buf[0:8], uint64(r.Start.UnixNano()))
+			binary.LittleEndian.PutUint64(buf[8:16], math.Float64bits(r.Value))
+			_, _ = h.Write(buf[:])
+		}
+		_, _ = h.Write([]byte{0xff}) // separator so planner/feedin boundaries can't alias
+	}
+
+	sum := h.Sum64()
+	changed := sum != site.optimizer.tariffHash
+	site.optimizer.tariffHash = sum
+	return changed
+}
+
 // optimizerUpdateAsync runs the optimizer unless the last run is younger than
 // the mode's interval. Pass force to run regardless, e.g. when a changed setting
-// should take effect immediately. It is a no-op when the optimizer is not
-// active. A forced trigger during a running update re-runs once that update
-// has finished.
+// should take effect immediately. The regular per-cycle call (force=false) also
+// self-gates on the price inputs: it re-runs immediately when planner+feedin
+// rates change (deferring a single cycle first so both - separate MQTT topics -
+// settle) and otherwise runs at most once per interval (the slot backstop). It
+// is a no-op when the optimizer is not active. A forced trigger during a running
+// update re-runs once that update has finished.
 func (site *Site) optimizerUpdateAsync(force bool) {
 	if !sponsor.IsAuthorized() || !optimizerEnabled() {
 		return
@@ -166,10 +205,29 @@ func (site *Site) optimizerUpdateAsync(force bool) {
 	}
 
 	if force {
-		// keep the gate open so a not-ready run is retried on the next cycle
+		// forced run: keep the gate open so a not-ready run is retried next cycle
 		site.optimizer.updated = time.Time{}
-	} else if time.Since(site.optimizer.updated) < interval {
-		return
+	} else {
+		// regular per-cycle call: gate on price changes and the interval backstop. All
+		// tariff state (dirty flag, fingerprint) is read/written only here, under the
+		// optimizer mutex, so it needs no separate synchronization.
+		switch {
+		case site.optimizer.tariffDirty:
+			// a price change was pending from the previous cycle: run it now. The
+			// run reads the latest planner+feedin at execution time, so a change
+			// also landing this cycle is captured and both topics stay consistent.
+			// Zero the gate so a not-ready run is retried on the next cycle.
+			site.optimizer.tariffDirty = false
+			site.optimizer.updated = time.Time{}
+		case site.optimizerTariffsChanged():
+			// first change of a burst: defer one cycle so planner and feedin
+			// (separate MQTT topics) both settle, then run via the case above.
+			site.optimizer.tariffDirty = true
+			return
+		case time.Since(site.optimizer.updated) < interval:
+			// backstop: static prices re-run at most once per interval; not due yet
+			return
+		}
 	}
 
 	var err error
@@ -272,6 +330,10 @@ type optimizerState struct {
 	mu      sync.Mutex  // guards optimizer runs
 	updated time.Time   // last optimizer run, guarded by mu
 	rerun   atomic.Bool // forced trigger arrived during a run, re-run when done
+
+	// guarded by mu, read/written only by optimizerUpdateAsync
+	tariffHash  uint64 // fingerprint of the planner+feedin rates last seen by the update loop
+	tariffDirty bool   // a tariff change is pending; deferred one cycle so planner+feedin settle
 
 	// guarded by the site lock
 	suggestions       map[string]types.Suggestion // suggestions by device key
