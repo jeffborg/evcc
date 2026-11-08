@@ -39,21 +39,21 @@ func TestOptimizerTriggerNotDroppedDuringRun(t *testing.T) {
 
 	// empty tariffs so the run below has no price inputs and stays local
 	site := &Site{log: util.NewLogger("test"), tariffs: new(tariff.Tariffs)}
-	site.optimizerRerun.Store(false)
+	site.optimizer.rerun.Store(false)
 
 	// hold the optimizer lock to simulate an in-flight run
-	require.True(t, site.optimizerMu.TryLock(), "optimizer lock should be free at test start")
+	require.True(t, site.optimizer.mu.TryLock(), "optimizer lock should be free at test start")
 
 	// a forced run arriving during the in-flight run must be recorded, not dropped
 	site.optimizerUpdateAsync(true)
-	assert.True(t, site.optimizerRerun.Load(), "trigger during a run must set the rerun flag")
+	assert.True(t, site.optimizer.rerun.Load(), "trigger during a run must set the rerun flag")
 
 	// the in-flight run finishes: optimizerUnlock re-dispatches for the recorded
 	// trigger. Call the re-run synchronously instead - without batteries it is a
 	// no-op - and verify it consumes the flag.
-	site.optimizerMu.Unlock()
+	site.optimizer.mu.Unlock()
 	site.optimizerUpdateAsync(false)
-	assert.False(t, site.optimizerRerun.Load(), "the re-run must consume the rerun flag")
+	assert.False(t, site.optimizer.rerun.Load(), "the re-run must consume the rerun flag")
 }
 
 // fakeRatesTariff is a minimal api.Tariff returning fixed rates for tests.
@@ -115,18 +115,18 @@ func TestOptimizerPerCycleGating(t *testing.T) {
 	// first per-cycle call sees a price change (fingerprint starts at zero) and
 	// defers a single cycle instead of running
 	site.optimizerUpdateAsync(false)
-	assert.True(t, site.optimizerTariffDirty, "first price change should be deferred one cycle")
-	assert.True(t, site.optimizerUpdated.IsZero(), "deferred cycle must not run the optimizer")
+	assert.True(t, site.optimizer.tariffDirty, "first price change should be deferred one cycle")
+	assert.True(t, site.optimizer.updated.IsZero(), "deferred cycle must not run the optimizer")
 
 	// simulate the deferred run having happened: clear dirty and mark a recent run.
 	// A subsequent call with unchanged prices is throttled by the slot backstop -
 	// it neither runs nor re-arms the defer.
-	site.optimizerTariffDirty = false
+	site.optimizer.tariffDirty = false
 	updated := time.Now()
-	site.optimizerUpdated = updated
+	site.optimizer.updated = updated
 	site.optimizerUpdateAsync(false)
-	assert.False(t, site.optimizerTariffDirty, "unchanged prices within the slot should not set dirty")
-	assert.Equal(t, updated, site.optimizerUpdated, "throttled cycle must not run the optimizer")
+	assert.False(t, site.optimizer.tariffDirty, "unchanged prices within the slot should not set dirty")
+	assert.Equal(t, updated, site.optimizer.updated, "throttled cycle must not run the optimizer")
 }
 
 // TestOptimizerSettingsPersistRoundTrip is a regression guard for the boot-restore
@@ -302,6 +302,26 @@ func TestApplyPrecondition(t *testing.T) {
 	lp.EXPECT().GetPlanGoal().Return(80.0, true).Times(1)
 	lp.EXPECT().GetPlanRequiredDuration(80.0, 8000.0).Return(time.Duration(0)).Times(1)
 	assert.Nil(t, applyPrecondition(lp, nil, 8))
+}
+
+func TestPlanDemand(t *testing.T) {
+	now := time.Date(2026, 1, 1, 10, 5, 0, 0, time.UTC) // 10 min left in current slot
+	eos := now.Truncate(tariff.SlotDuration).Add(tariff.SlotDuration)
+	slot := func(i int) time.Time { return eos.Add(time.Duration(i-1) * tariff.SlotDuration) }
+
+	assert.Nil(t, planDemand(nil, nil, 1000, now, 6))
+
+	// 10 + 15 + 7.5 min: 4 kWh spread evenly, current slot relative to its full length before prorate
+	plan := api.Rates{
+		{Start: now, End: slot(1)},
+		{Start: slot(2), End: slot(3)},
+		{Start: slot(4), End: slot(4).Add(tariff.SlotDuration / 2)},
+	}
+	assert.InDeltaSlice(t, []float32{1846, 0, 1846, 0, 923, 0}, planDemand(plan, nil, 4000, now, 6), 1)
+
+	// existing demand is kept where higher, plan beyond horizon ignored
+	plan = api.Rates{{Start: slot(1), End: slot(5)}}
+	assert.InDeltaSlice(t, []float32{3000, 1000, 1000}, planDemand(plan, []float32{3000, 500, 0}, 4000, now, 3), 1)
 }
 
 // TestApplyPlanGoalEnergy guards that an energy plan only asks for the missing energy on top of
@@ -893,6 +913,7 @@ func TestLoadpointRequestChargingState(t *testing.T) {
 			lp.EXPECT().EffectiveMaxPower().Return(11000.0).AnyTimes()
 			lp.EXPECT().GetMode().Return(api.ModeNow).AnyTimes()
 			lp.EXPECT().GetStatus().Return(status).AnyTimes()
+			lp.EXPECT().EffectivePlanTime().Return(time.Time{}).AnyTimes()
 			lp.EXPECT().GetAlwaysCharge().Return(api.AlwaysChargeOff).AnyTimes()
 			lp.EXPECT().GetChargePower().Return(11000.0).AnyTimes()
 			lp.EXPECT().GetRemainingEnergy().Return(0.0).AnyTimes()
@@ -1340,10 +1361,10 @@ func TestApplyOptimizerResultPVShare(t *testing.T) {
 			})
 
 			site := &Site{valueChan: make(chan util.Param, 100)}
-			site.applyOptimizerResult(req, details, res, schedule, now.Add(time.Second), now)
+			site.applyOptimizerResult(optimizerSolve{req: req, details: details, res: res, schedule: schedule, completed: now}, now.Add(time.Second))
 
 			for i := range tc.charge {
-				assert.Equal(t, tc.want, site.suggestions[batteryKey(string(rune('a'+i)))].Action)
+				assert.Equal(t, tc.want, site.optimizer.suggestions[batteryKey(string(rune('a'+i)))].Action)
 			}
 		})
 	}
@@ -1496,11 +1517,13 @@ func reapplyFixture(site *Site, batteries []optimizer.BatteryConfig, res []optim
 	dt := []int{7 * 60, 900, 900}
 	schedule := optimizerSchedule{timestamps: asTimestamps(dt, completed), dt: dt}
 
-	site.applyOptimizerResult(
-		optimizer.OptimizationInput{TimeSeries: optimizer.TimeSeries{Dt: dt}, Batteries: batteries},
-		requestDetails{Timestamps: schedule.timestamps, BatteryDetails: details},
-		optimizer.OptimizationResult{GridImport: []float32{0, 500, 0}, Batteries: res}, // slot 1 imports
-		schedule, completed, completed)
+	site.applyOptimizerResult(optimizerSolve{
+		req:       optimizer.OptimizationInput{TimeSeries: optimizer.TimeSeries{Dt: dt}, Batteries: batteries},
+		details:   requestDetails{Timestamps: schedule.timestamps, BatteryDetails: details},
+		res:       optimizer.OptimizationResult{GridImport: []float32{0, 500, 0}, Batteries: res}, // slot 1 imports
+		schedule:  schedule,
+		completed: completed,
+	}, completed)
 
 	return completed
 }
@@ -1572,7 +1595,7 @@ func TestReapplySuggestionsExcludeDisconnectedLoadpoint(t *testing.T) {
 	site.reapplySuggestions(reapplyMidGap)
 
 	assert.Equal(t, actionStop, site.suggestion(loadpointKey(0), actionCharge).Action)
-	assert.Nil(t, site.lastOptimizerSolve)
+	assert.Nil(t, site.optimizer.lastSolve)
 }
 
 func TestReapplySuggestionsExpireAfterOutage(t *testing.T) {
@@ -1584,7 +1607,7 @@ func TestReapplySuggestionsExpireAfterOutage(t *testing.T) {
 	site.reapplySuggestions(completed.Add(2*tariff.SlotDuration + time.Minute))
 
 	assert.Nil(t, site.suggestion(batteryKey("home"), api.BatteryNormal.String()))
-	assert.Nil(t, site.lastOptimizerSolve)
+	assert.Nil(t, site.optimizer.lastSolve)
 }
 
 func TestCircuitMaxImport(t *testing.T) {
@@ -1612,20 +1635,20 @@ func TestOptimizerRerunAfterBusy(t *testing.T) {
 	site := &Site{log: util.NewLogger("foo")}
 
 	// run in progress: forced trigger is remembered, regular one is not
-	site.optimizerMu.Lock()
+	site.optimizer.mu.Lock()
 	site.optimizerUpdateAsync(false)
-	assert.False(t, site.optimizerRerun.Load())
+	assert.False(t, site.optimizer.rerun.Load())
 	site.optimizerUpdateAsync(true)
-	assert.True(t, site.optimizerRerun.Load())
+	assert.True(t, site.optimizer.rerun.Load())
 
 	// unlock re-runs on its own, despite the closed interval gate
 	last := time.Now().Add(-time.Second)
-	site.optimizerUpdated = last
+	site.optimizer.updated = last
 	site.optimizerUnlock()
-	assert.Eventually(t, func() bool { return !site.optimizerRerun.Load() }, time.Second, time.Millisecond)
+	assert.Eventually(t, func() bool { return !site.optimizer.rerun.Load() }, time.Second, time.Millisecond)
 
 	// the re-run holds the lock from before consuming the trigger until done
-	site.optimizerMu.Lock()
-	defer site.optimizerMu.Unlock()
-	assert.True(t, site.optimizerUpdated.After(last), "pending trigger must bypass interval gate")
+	site.optimizer.mu.Lock()
+	defer site.optimizer.mu.Unlock()
+	assert.True(t, site.optimizer.updated.After(last), "pending trigger must bypass interval gate")
 }
