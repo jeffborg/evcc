@@ -9,6 +9,7 @@ import (
 	"github.com/evcc-io/evcc/core/planner"
 	"github.com/evcc-io/evcc/core/soc"
 	"github.com/evcc-io/evcc/core/vehicle"
+	"github.com/evcc-io/evcc/tariff"
 )
 
 const (
@@ -98,10 +99,15 @@ func (lp *Loadpoint) GetPlanRequiredDuration(goal, maxPower float64) time.Durati
 // getPlanRequiredDuration is the estimated total charging duration
 func (lp *Loadpoint) getPlanRequiredDuration(goal, maxPower float64) time.Duration {
 	if lp.socBasedPlanning() {
-		if lp.socEstimator == nil {
-			return soc.RemainingChargeDuration(goal, maxPower, lp.vehicleSoc, lp.GetVehicle().Capacity())
+		switch v, estimator := lp.getVehicleAndSocEstimator(); {
+		case estimator != nil:
+			return estimator.RemainingChargeDuration(goal, maxPower)
+		case v != nil:
+			return soc.RemainingChargeDuration(goal, maxPower, lp.vehicleSoc, v.Capacity())
+		default:
+			// vehicle removed concurrently, goal is a SoC and must not be read as energy
+			return 0
 		}
-		return lp.socEstimator.RemainingChargeDuration(goal, maxPower)
 	}
 
 	energy := lp.remainingPlanEnergy(goal)
@@ -270,9 +276,14 @@ func (lp *Loadpoint) plannerActive(plannerRates ...api.Rates) (active bool) {
 	active = !activeSlot.End.IsZero()
 
 	// the optimizer starts and stops by itself, the planner's rules below don't
-	// apply. Its plan is active during a slot and while the deadline is critical.
+	// apply. Its plan is active during a slot, while the deadline is critical and
+	// through a short gap before its next slot.
 	if optimized {
 		active = active || lp.planDeadlineCritical()
+		if !active && lp.optimizerPlanGap() {
+			lp.log.DEBUG.Printf("plan: avoid re-start within %v, continuing until %s", tariff.SlotDuration, planStart.Round(time.Second).Local())
+			active = true
+		}
 		if active && lp.planLocked.Id == 0 && isSocBased {
 			lp.lockPlanGoal(planTime, int(goal), lp.getPlanId())
 		}
