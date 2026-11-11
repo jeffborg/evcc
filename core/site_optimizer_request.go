@@ -26,10 +26,16 @@ import (
 // optimizerDecaySlots is the number of slots over which measured values decay into the forecast
 const optimizerDecaySlots = 4
 
+// plannerRateFallback is the fallback EUR/MWh used for planner slots with no forecast
+const plannerRateFallback = 20
+
 type requestDetails struct {
 	Timestamps     []time.Time     `json:"timestamp"`
 	BatteryDetails []batteryDetail `json:"batteryDetails"`
 	DemandDetails  []demandDetail  `json:"demandDetails"`
+	// GridForecastMissing flags grid price slots filled with the fallback rate
+	// (planner tariff gap) so the UI can distinguish them from real tariff data
+	GridForecastMissing []bool `json:"gridForecastMissing"`
 }
 
 type demandType string
@@ -80,35 +86,41 @@ func (site *Site) optimizerRequest(battery []types.Measurement) (optimizer.Optim
 		return req, details, errors.New("solar forecast unavailable")
 	}
 
-	grid := currentRates(site.GetTariff(api.TariffUsageGrid))
 	planner := currentRates(site.GetTariff(api.TariffUsagePlanner))
-	feedIn := feedInRates(site.GetTariff(api.TariffUsageFeedIn), grid)
+	feedIn := feedInRates(site.GetTariff(api.TariffUsageFeedIn), planner)
 
-	minLen := lo.Min([]int{len(grid), len(feedIn)})
+	minLen := len(feedIn)
+	if plannerLen := rateHorizonSlots(planner); plannerLen > 0 {
+		minLen = min(minLen, plannerLen)
+	}
 	if solarTariff != nil {
 		minLen = min(minLen, len(solar))
 	}
 
 	hosted := optimizerURI() == OPTIMIZER_URI
 	if hosted {
-		minLen = slotsUntil(grid, optimizerHorizon(time.Now()), minLen)
+		minLen = slotsUntil(planner, optimizerHorizon(time.Now()), minLen)
 	}
 
 	if expectedSlots := 8; minLen < expectedSlots {
 		if solarTariff != nil {
-			return req, details, fmt.Errorf("not enough forecast slots for meaningful optimization: %d < %d (grid=%d, feedIn=%d, solar=%d)", minLen, expectedSlots, len(grid), len(feedIn), len(solar))
+			return req, details, fmt.Errorf("not enough forecast slots for meaningful optimization: %d < %d (planner=%d, feedIn=%d, solar=%d)", minLen, expectedSlots, len(planner), len(feedIn), len(solar))
 		}
-		return req, details, fmt.Errorf("not enough forecast slots for meaningful optimization: %d < %d (grid=%d, feedIn=%d)", minLen, expectedSlots, len(grid), len(feedIn))
+		return req, details, fmt.Errorf("not enough forecast slots for meaningful optimization: %d < %d (planner=%d, feedIn=%d)", minLen, expectedSlots, len(planner), len(feedIn))
 	}
+
+	// the planner tariff drives the optimizer's import price; pad gaps with the
+	// fallback rate and flag substituted slots so the UI can distinguish them
+	grid, gridMissing := fillMissingRateSlots(planner, minLen, plannerRateFallback)
 
 	now := time.Now()
 	dt := timeSteps(minLen, now)
 	firstSlotDuration := time.Duration(dt[0]) * time.Second
 
-	site.log.DEBUG.Printf("optimizer: optimizing %d slots until %v: grid=%d, feedIn=%d, solar=%d, first slot: %v",
+	site.log.DEBUG.Printf("optimizer: optimizing %d slots until %v: planner=%d, feedIn=%d, solar=%d, first slot: %v",
 		minLen,
 		grid[minLen-1].End.Local(),
-		len(grid), len(feedIn), len(solar),
+		len(planner), len(feedIn), len(solar),
 		firstSlotDuration,
 	)
 
@@ -163,14 +175,13 @@ func (site *Site) optimizerRequest(battery []types.Measurement) (optimizer.Optim
 		DemandDetails: []demandDetail{
 			{Type: demandTypeHome, Values: prorate(home, firstSlotDuration)},
 		},
+		GridForecastMissing: gridMissing,
 	}
 
-	if site.circuit != nil {
-		if pMaxImp := circuitMaxImport(site.circuit); pMaxImp > 0 {
-			// hard grid import limit if no price penalty is set by PrcPExcImp
-			req.Grid.PMaxImp = float32(pMaxImp)
-		}
-	}
+	// hard grid import limit; hardcoded to the physical grid-connection ceiling,
+	// intentionally NOT derived from site.circuit (whose GetMaxPower is the Amber
+	// max-demand value)
+	req.Grid.PMaxImp = 15000
 
 	// static grid export limit configured in the UI: export is capped at this
 	// power, excess PV is curtailed instead of exported
@@ -207,7 +218,9 @@ func (site *Site) optimizerRequest(battery []types.Measurement) (optimizer.Optim
 		}
 
 		// skip disabled loadpoints
-		if cfg, detail := site.loadpointRequest(lp, minLen, firstSlotDuration, planner); cfg.CMax > 0 {
+		// pass the PADDED rates (grid), not the raw planner: minLen counts slots
+		// including gaps, so only the padded array is index-aligned with demand[i]
+		if cfg, detail := site.loadpointRequest(lp, minLen, firstSlotDuration, grid); cfg.CMax > 0 {
 			detail.loadpoint = &id
 			batteries = append(batteries, optimizerBattery{cfg, detail})
 		}
@@ -233,13 +246,13 @@ func (site *Site) optimizerRequest(battery []types.Measurement) (optimizer.Optim
 			continue
 		}
 
-		cfg, detail := site.batteryRequest(dev, b, planner, minLen, firstSlotDuration)
+		cfg, detail := site.batteryRequest(dev, b, grid, minLen, firstSlotDuration, details.Timestamps)
 		batteries = append(batteries, optimizerBattery{cfg, detail})
 	}
 
 	for _, b := range batteries {
 		// vehicles cannot export
-		b.cfg.PA = endOfHorizonValue(req.TimeSeries.PN, req.TimeSeries.PE, eta, b.detail.loadpoint == nil)
+		b.cfg.PA = site.optimizerPA(req.TimeSeries.PN, req.TimeSeries.PE, b.detail.loadpoint == nil)
 		req.Batteries = append(req.Batteries, b.cfg)
 		details.BatteryDetails = append(details.BatteryDetails, b.detail)
 	}
@@ -409,7 +422,7 @@ func clearDemandWhenFull(demand []float32, headroom float32) []float32 {
 	return res
 }
 
-func (site *Site) batteryRequest(dev config.Device[api.Meter], b types.Measurement, planner api.Rates, minLen int, firstSlotDuration time.Duration) (optimizer.BatteryConfig, batteryDetail) {
+func (site *Site) batteryRequest(dev config.Device[api.Meter], b types.Measurement, planner api.Rates, minLen int, firstSlotDuration time.Duration, timestamps []time.Time) (optimizer.BatteryConfig, batteryDetail) {
 	bat := optimizer.BatteryConfig{
 		CMax:      batteryPower,
 		DMax:      batteryPower,
@@ -487,6 +500,9 @@ func (site *Site) batteryRequest(dev config.Device[api.Meter], b types.Measureme
 			}
 		}
 	}
+
+	// recurring per-weekday battery SoC reserve goals
+	site.applyBatterySocGoals(&bat, *b.Capacity, timestamps)
 
 	return bat, detail
 }
@@ -1052,4 +1068,172 @@ func (site *Site) applyBatteryGridChargeLimit(cMax float32, planner api.Rates, m
 	}
 
 	return demand
+}
+
+// optimizerPA returns the end-of-horizon Wh price penalty. A manual override
+// (currency/kWh) wins; otherwise it derives from the cheapest grid slot via
+// endOfHorizonValue, floored at the export price for storage that can export.
+func (site *Site) optimizerPA(grid, feedin []float32, canExport bool) float32 {
+	if manual := site.GetOptimizerManualPA(); manual != nil {
+		return float32(*manual / 1e3)
+	}
+
+	return endOfHorizonValue(grid, feedin, eta, canExport)
+}
+
+// applyBatterySocGoals merges the active recurring SoC reserve goals into the
+// battery's per-slot SGoal reserve, weekday- and timezone-filtered.
+func (site *Site) applyBatterySocGoals(bat *optimizer.BatteryConfig, capacity float64, timestamps []time.Time) {
+	goals := site.GetBatteryOptimizerSocGoals()
+	if len(goals) == 0 || len(timestamps) == 0 {
+		return
+	}
+
+	upperLimit := bat.SCapacity
+	if bat.SMax > 0 {
+		upperLimit = bat.SMax
+	}
+
+	// merge all active goals into one per-slot reserve array; on overlap the
+	// higher reserve wins
+	var sgoal []float32
+	for _, g := range goals {
+		if !g.Active || len(g.Weekdays) == 0 {
+			continue
+		}
+
+		targetTime, err := time.Parse("15:04", g.Time)
+		if err != nil {
+			site.log.ERROR.Println("optimizer:", err)
+			continue
+		}
+
+		// the goal time is meaningless without its zone: interpret it strictly in
+		// the configured timezone and never fall back to the server's local zone,
+		// which would misplace the reserve by the UTC offset
+		loc, err := time.LoadLocation(g.Tz)
+		if err != nil {
+			site.log.ERROR.Println("optimizer:", err)
+			continue
+		}
+
+		goalWh := float32(capacity * float64(g.Soc) * 10)
+		if bat.SMin > 0 {
+			goalWh = max(goalWh, bat.SMin)
+		}
+		if upperLimit > 0 {
+			goalWh = min(goalWh, upperLimit)
+		}
+		if goalWh <= 0 {
+			continue
+		}
+
+		sgoal = batterySocGoalSlots(sgoal, timestamps, loc, targetTime.Hour(), targetTime.Minute(), g.Weekdays, goalWh)
+	}
+
+	if sgoal != nil {
+		bat.SGoal = sgoal
+		if bat.SMax == 0 {
+			bat.SMax = upperLimit
+		}
+	}
+}
+
+// batterySocGoalSlots marks the first slot at or after the goal's target time on
+// each selected weekday with the goal reserve, accumulating into sgoal (higher
+// reserve wins on overlap). Pass nil sgoal for the first goal.
+func batterySocGoalSlots(sgoal []float32, timestamps []time.Time, loc *time.Location, targetHour, targetMinute int, weekdays []int, goal float32) []float32 {
+	if len(timestamps) == 0 {
+		return sgoal
+	}
+
+	first := timestamps[0].In(loc)
+	target := time.Date(
+		first.Year(),
+		first.Month(),
+		first.Day(),
+		targetHour,
+		targetMinute,
+		0,
+		0,
+		loc,
+	)
+	if target.Before(first) {
+		target = target.AddDate(0, 0, 1)
+	}
+
+	for i, ts := range timestamps {
+		if ts.In(loc).Before(target) {
+			continue
+		}
+
+		// first slot at or after this day's target time; match on the slot's own
+		// weekday (not target's) so a data gap can't bleed the reserve onto another day
+		if slices.Contains(weekdays, int(ts.In(loc).Weekday())) {
+			if sgoal == nil {
+				sgoal = make([]float32, len(timestamps))
+			}
+			if goal > sgoal[i] {
+				sgoal[i] = goal
+			}
+		}
+		target = target.AddDate(0, 0, 1)
+	}
+
+	return sgoal
+}
+
+// fillMissingRateSlots returns rates padded to maxLen slots. Slots without a
+// matching source rate are filled with fallback and flagged in the missing mask
+// so the UI can distinguish substituted values from real tariff data.
+func fillMissingRateSlots(rates api.Rates, maxLen int, fallback float64) (api.Rates, []bool) {
+	if maxLen <= 0 {
+		return nil, nil
+	}
+
+	start := time.Now().Truncate(tariff.SlotDuration)
+	res := make(api.Rates, 0, maxLen)
+	missing := make([]bool, 0, maxLen)
+
+	slotIndex := 0
+	for i := range maxLen {
+		slotStart := start.Add(time.Duration(i) * tariff.SlotDuration)
+		slotEnd := slotStart.Add(tariff.SlotDuration)
+		value := fallback
+		filled := true
+
+		for slotIndex < len(rates) && !rates[slotIndex].End.After(slotStart) {
+			slotIndex++
+		}
+
+		if slotIndex < len(rates) && !slotStart.Before(rates[slotIndex].Start) && slotStart.Before(rates[slotIndex].End) {
+			value = rates[slotIndex].Value
+			filled = false
+		}
+
+		res = append(res, api.Rate{
+			Start: slotStart,
+			End:   slotEnd,
+			Value: value,
+		})
+		missing = append(missing, filled)
+	}
+
+	return res, missing
+}
+
+// rateHorizonSlots returns the number of 15-min slots from now to the end of the
+// rates, including gaps (unlike len(rates) which counts only present slots).
+func rateHorizonSlots(rates api.Rates) int {
+	if len(rates) == 0 {
+		return 0
+	}
+
+	start := time.Now().Truncate(tariff.SlotDuration)
+	end := rates[len(rates)-1].End
+	if !end.After(start) {
+		return 0
+	}
+
+	return int(end.Sub(start) / tariff.SlotDuration)
 }
