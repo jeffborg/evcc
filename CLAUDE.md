@@ -53,6 +53,15 @@ Upstream now ships its own optimizer; the fork layers these on top of it:
   battery config card.
 - **`robustPriceMax`** price-spike clipping in the forecast price chart
   (`assets/js/utils/robustPriceMax.ts`, used by `Forecast/PriceChart.vue`).
+- **Plan explanation shown for the self-hosted optimizer.** Upstream hides the
+  `Optimize/PlanExplanation.vue` card behind `v-if="evopt.hosted"` (added upstream
+  2026-10-24, "hide explain for self-hosted optimizer"), where `hosted` is
+  `optimizerURI() == OPTIMIZER_URI` — so it never shows with a custom `OPTIMIZER_URI`. This
+  fork's optimizer implements `/optimize/explain` itself, so the gate is **dropped** in
+  `assets/js/views/Optimize.vue` and guarded by `assets/js/views/Optimize.test.ts`. Only the
+  UI gate is removed: `Hosted` in the published payload keeps its real value, so the
+  self-hosted horizon/coarsening behaviour (no 48h clamp, `OPTIMIZER_COARSEN_AFTER`) is
+  untouched. **On an upstream sync, re-check that the `v-if` has not come back.**
 
 ## Staying in sync with upstream
 
