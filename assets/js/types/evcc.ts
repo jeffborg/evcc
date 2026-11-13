@@ -944,7 +944,7 @@ export enum ALWAYS_CHARGE {
 export enum BATTERY_MODE {
   UNKNOWN = "unknown",
   NORMAL = "normal",
-  HOLD = "hold",
+  HOLDDISCHARGE = "holddischarge",
   CHARGE = "charge",
   HOLDCHARGE = "holdcharge",
   DISCHARGE = "discharge",
@@ -1253,7 +1253,7 @@ export interface Battery {
 /** Battery optimizer suggestion for a home battery. */
 export interface BatterySuggestion {
   /** Suggested operation mode. */
-  action: "normal" | "hold" | "charge" | "holdcharge" | "discharge";
+  action: "normal" | "holddischarge" | "charge" | "holdcharge" | "discharge";
   /** Recommended charge power in W. */
   charge?: number;
   /** Recommended discharge power in W. */

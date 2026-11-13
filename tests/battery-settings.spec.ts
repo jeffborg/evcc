@@ -185,7 +185,7 @@ test.describe("battery settings", async () => {
     await expect(value).toHaveValue("5");
   });
 
-  test("hold mode display", async ({ page }) => {
+  test("holddischarge mode display", async ({ page }) => {
     await page.goto("/");
     await page.getByTestId("energyflow").click();
 
