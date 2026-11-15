@@ -69,6 +69,7 @@ const (
 	// optimizer
 	OptimizerChargingStrategy   = "optimizerChargingStrategy"
 	OptimizerChargingStrategies = "optimizerChargingStrategies"
+	OptimizerRiskProfile        = "optimizerRiskProfile"
 
 	// battery status
 	Battery     = "battery"
