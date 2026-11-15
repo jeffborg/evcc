@@ -68,8 +68,10 @@
 					</Card>
 
 					<!-- a new explanation remounts the card, which starts a new vote -->
+					<!-- fork: no `v-if="evopt.hosted"` gate - upstream hides explain for a
+					     custom OPTIMIZER_URI, but this fork's self-hosted optimizer serves
+					     /optimize/explain itself. Guarded by Optimize.test.ts. -->
 					<PlanExplanation
-						v-if="evopt.hosted"
 						:key="explained?.created"
 						class="mb-4"
 						:sponsor="isSponsor"
