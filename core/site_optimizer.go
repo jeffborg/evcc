@@ -140,12 +140,15 @@ var errOptimizerNotReady = errors.New("battery measurements not ready")
 // only need one run per slot.
 const optimizerInterval = 5 * time.Minute
 
-// triggerOptimizer forces an immediate optimizer re-run (bypassing the slot gate)
-// so a changed setting or a new price takes effect without waiting for the next
-// slot. It is single-flight: optimizerUpdateAsync records a forced re-run if a
-// run is already in progress, so the trigger is never lost (see optimizerUnlock).
-func (site *Site) triggerOptimizer() {
-	go site.optimizerUpdateAsync(true)
+// optimizerTrigger starts optimizerUpdateAsync in the background. Gating before
+// spawning keeps an inactive optimizer from leaving goroutines behind. With force
+// it bypasses the slot gate, so a changed setting or a new price takes effect
+// without waiting for the next slot; it is single-flight, a forced trigger during
+// a run is never lost but re-runs afterwards (see optimizerUnlock).
+func (site *Site) optimizerTrigger(force bool) {
+	if sponsor.IsAuthorized() && optimizerEnabled() {
+		go site.optimizerUpdateAsync(force)
+	}
 }
 
 // optimizerTariffsChanged reports whether the planner or feedin tariff rates
@@ -368,7 +371,7 @@ func (site *Site) optimizerUnlock() {
 	site.optimizer.mu.Unlock()
 
 	if site.optimizer.rerun.Load() {
-		go site.optimizerUpdateAsync(false)
+		site.optimizerTrigger(false)
 	}
 }
 

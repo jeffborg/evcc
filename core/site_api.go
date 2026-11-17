@@ -50,7 +50,7 @@ func filterConfigurableCurtailers(ref []string) []string {
 
 // Optimize updates the optimizer
 func (site *Site) Optimize() {
-	go site.optimizerUpdateAsync(true)
+	site.optimizerTrigger(true)
 }
 
 // GetTitle returns the title
@@ -445,7 +445,7 @@ func (site *Site) SetGridExportLimit(power float64) error {
 		site.publish(keys.GridExportLimit, power)
 
 		// re-run the optimizer so the new limit takes effect immediately
-		go site.optimizerUpdateAsync(true)
+		site.optimizerTrigger(true)
 	}
 
 	return nil
@@ -475,7 +475,7 @@ func (site *Site) SetProfilePercentile(percentile *float64) error {
 	site.publish(keys.ProfilePercentile, percentile)
 
 	// re-run the optimizer so the new profile takes effect immediately
-	go site.optimizerUpdateAsync(true)
+	site.optimizerTrigger(true)
 
 	return nil
 }
@@ -555,7 +555,7 @@ func (site *Site) SetOptimizerManualPA(val *float64) error {
 	site.Unlock()
 
 	if changed {
-		site.triggerOptimizer()
+		site.optimizerTrigger(true)
 	}
 
 	return nil
@@ -587,7 +587,7 @@ func (site *Site) SetBatteryGridDischarge(val bool) error {
 
 	if changed {
 		// re-run the optimizer so the new discharge mode takes effect immediately
-		go site.optimizerUpdateAsync(true)
+		site.optimizerTrigger(true)
 
 		// drop the limit, it is meaningless without the opt-in
 		if !val {
@@ -618,7 +618,7 @@ func (site *Site) SetSolarAdjusted(val bool) {
 		site.publish(keys.SolarAdjusted, val)
 
 		// re-run the optimizer so the adjusted forecast takes effect immediately
-		go site.optimizerUpdateAsync(true)
+		site.optimizerTrigger(true)
 	}
 }
 
@@ -662,7 +662,7 @@ func (site *Site) setBatteryGridChargeLimit(val *float64) error {
 		site.publish(keys.BatteryGridChargeLimit, val)
 
 		// re-run the optimizer so the new limit takes effect immediately
-		go site.optimizerUpdateAsync(true)
+		site.optimizerTrigger(true)
 	}
 
 	return nil
@@ -746,7 +746,7 @@ func (site *Site) SetBatteryOptimizerSocGoals(goals []api.RepeatingPlan) error {
 	site.Unlock()
 
 	if changed {
-		site.triggerOptimizer()
+		site.optimizerTrigger(true)
 	}
 
 	return nil
@@ -825,7 +825,7 @@ func (site *Site) SetOptimizerChargingStrategy(strategy string) error {
 		site.publish(keys.OptimizerChargingStrategy, strategy)
 
 		// re-run the optimizer so the new strategy takes effect immediately
-		go site.optimizerUpdateAsync(true)
+		site.optimizerTrigger(true)
 	}
 
 	return nil
@@ -858,7 +858,7 @@ func (site *Site) SetOptimizerRiskProfile(profile *api.RiskProfile) error {
 	site.publish(keys.OptimizerRiskProfile, profile)
 
 	// re-run the optimizer so the new profile takes effect immediately
-	go site.optimizerUpdateAsync(true)
+	site.optimizerTrigger(true)
 
 	return nil
 }
