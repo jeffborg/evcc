@@ -166,6 +166,62 @@
 					</template>
 				</i18n-t>
 			</ConfirmModal>
+
+			<div class="border-top pt-3 mt-3">
+				<label class="form-label d-block mb-2">
+					{{ $t("batterySettings.optimizerSocGoal.title") }}
+				</label>
+				<PlansRepeatingSettings
+					id="battery"
+					:start-number="1"
+					:plans="batteryOptimizerSocGoals"
+					@updated="saveBatteryOptimizerSocGoals"
+				/>
+				<small class="d-block text-muted mt-2">
+					{{ $t("batterySettings.optimizerSocGoal.hint") }}
+				</small>
+			</div>
+
+			<div class="border-top pt-3 mt-3">
+				<div class="form-check form-switch mb-3">
+					<input
+						id="batteryExpManualPAEnabled"
+						:checked="optimizerManualPAEnabled"
+						class="form-check-input"
+						type="checkbox"
+						role="switch"
+						@change="changeOptimizerManualPAEnabled"
+					/>
+					<label class="form-check-label" for="batteryExpManualPAEnabled">
+						{{ $t("batterySettings.optimizerPA.enable") }}
+					</label>
+				</div>
+				<div class="row g-3 align-items-end">
+					<div class="col-sm-6">
+						<label class="form-label" for="batteryExpManualPA">
+							{{ $t("batterySettings.optimizerPA.value") }}
+						</label>
+						<div class="input-group">
+							<input
+								id="batteryExpManualPA"
+								v-model="selectedOptimizerManualPA"
+								type="number"
+								inputmode="decimal"
+								step="0.001"
+								class="form-control mx-0"
+								:disabled="!optimizerManualPAEnabled"
+								@change="changeOptimizerManualPA"
+							/>
+							<span class="input-group-text">
+								{{ pricePerKWhUnit(currency) }}
+							</span>
+						</div>
+					</div>
+				</div>
+				<small class="d-block text-muted mt-2">
+					{{ $t("batterySettings.optimizerPA.hint") }}
+				</small>
+			</div>
 		</template>
 	</Card>
 </template>
@@ -176,16 +232,17 @@ import "@h2d2/shopicons/es/regular/lightning";
 import { defineComponent, type PropType } from "vue";
 import formatter from "@/mixins/formatter";
 import api from "@/api";
-import type { Battery } from "@/types/evcc";
+import { CURRENCY, type Battery, type RepeatingPlan } from "@/types/evcc";
 import Card from "../Helper/Card.vue";
 import ConfirmModal from "../Helper/ConfirmModal.vue";
 import InlineSocSelect from "./InlineSocSelect.vue";
 import OptimizerAuto from "../MaterialIcon/OptimizerAuto.vue";
+import PlansRepeatingSettings from "../ChargingPlans/PlansRepeatingSettings.vue";
 
 // Battery usage controls: surplus priority, charging buffer and discharge switches.
 export default defineComponent({
 	name: "BatteryConfigCard",
-	components: { Card, ConfirmModal, InlineSocSelect, OptimizerAuto },
+	components: { Card, ConfirmModal, InlineSocSelect, OptimizerAuto, PlansRepeatingSettings },
 	mixins: [formatter],
 	props: {
 		bufferSoc: { type: Number, default: 100 },
@@ -193,6 +250,12 @@ export default defineComponent({
 		bufferStartSoc: { type: Number, default: 0 },
 		batteryDischargeControl: Boolean,
 		batteryGridDischarge: Boolean,
+		batteryOptimizerSocGoals: {
+			type: Array as PropType<RepeatingPlan[]>,
+			default: () => [],
+		},
+		optimizerManualPA: { type: [Number, null] as PropType<number | null>, default: null },
+		currency: { type: String as PropType<CURRENCY>, default: CURRENCY.EUR },
 		battery: { type: Object as PropType<Battery> },
 		experimental: Boolean,
 		optimizerAutomatic: Boolean,
@@ -207,6 +270,8 @@ export default defineComponent({
 			selectedBufferSoc: 100,
 			selectedPrioritySoc: 0,
 			selectedBufferStartSoc: 0,
+			selectedOptimizerManualPA: "",
+			optimizerManualPAEnabled: false,
 		};
 	},
 	computed: {
@@ -286,6 +351,17 @@ export default defineComponent({
 		bufferStartSoc: {
 			handler(soc) {
 				this.selectedBufferStartSoc = soc;
+			},
+			immediate: true,
+		},
+		optimizerManualPA: {
+			handler(value: number | null) {
+				this.optimizerManualPAEnabled = value !== null && value !== undefined;
+				if (value !== null && value !== undefined) {
+					this.selectedOptimizerManualPA = String(
+						value * this.pricePerKWhDisplayFactor(this.currency)
+					);
+				}
 			},
 			immediate: true,
 		},
@@ -377,6 +453,44 @@ export default defineComponent({
 				return false;
 			}
 			return this.postGridDischarge(enable, true);
+		},
+		async saveBatteryOptimizerSocGoals(goals: RepeatingPlan[]) {
+			try {
+				await api.post("batteryoptimizersocgoal", goals);
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async changeOptimizerManualPAEnabled(e: Event) {
+			const enabled = (e.target as HTMLInputElement).checked;
+			this.optimizerManualPAEnabled = enabled;
+			try {
+				if (!enabled) {
+					await api.delete("optimizermanualpa");
+					return;
+				}
+				await this.saveOptimizerManualPA();
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async changeOptimizerManualPA() {
+			try {
+				await this.saveOptimizerManualPA();
+			} catch (err) {
+				console.error(err);
+			}
+		},
+		async saveOptimizerManualPA() {
+			if (!this.optimizerManualPAEnabled) {
+				return;
+			}
+			const value = Number.parseFloat(this.selectedOptimizerManualPA);
+			if (!Number.isFinite(value)) {
+				return;
+			}
+			const baseValue = value / this.pricePerKWhDisplayFactor(this.currency);
+			await api.post(`optimizermanualpa/${encodeURIComponent(baseValue)}`);
 		},
 		getBufferStartName(value: number) {
 			const key = value === 0 ? "never" : value === 100 ? "full" : "above";
