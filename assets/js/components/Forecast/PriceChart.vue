@@ -21,6 +21,7 @@ import {
 	maxSlotIndex,
 	hoverDot,
 	lineDefaults,
+	hatchPattern,
 } from "./echarts";
 import colors, { lighterColor } from "@/colors";
 import formatter from "@/mixins/formatter";
@@ -99,7 +100,6 @@ export default defineComponent({
 		},
 		chartOption(): Record<string, unknown> {
 			const priceColor = colors.price || "";
-			const exportColor = colors.export || "";
 
 			// oxlint-disable-next-line typescript/no-this-alias
 			const vThis = this;
@@ -115,23 +115,23 @@ export default defineComponent({
 					formatter(
 						allParams: {
 							value: [string, number];
-							seriesIndex: number;
-							data?: { closing?: boolean };
+							seriesName: string;
+							data?: { closing?: boolean; estimate?: boolean; spike?: boolean };
 						}[]
 					) {
-						// price + feed-in are series 0/1; ignore the spike-marker scatters
-						const params = allParams.filter((s) => s.seriesIndex < 2);
-						const p = params[0];
-						if (!p || p.data?.closing) return "";
+						// ignore closing points and the spike-marker scatters
+						const points = allParams.filter((s) => !s.data?.closing && !s.data?.spike);
+						const p = points[0];
+						if (!p) return "";
 						const d = new Date(p.value[0]);
 						const time = `${vThis.weekdayShort(d)} ${vThis.fmtHourMinute(d)}`;
-						const showLabels = params.length > 1;
-						const labels = [
-							vThis.$t("main.energyflow.gridImport"),
-							vThis.$t("main.energyflow.pvExport"),
-						];
-						const rows = params.map((s) => ({
-							name: showLabels ? labels[s.seriesIndex] : undefined,
+						const showLabels = points.length > 1;
+						const estimate = vThis.$t("forecast.price.estimate");
+						const rows = points.map((s) => ({
+							name: vThis.rowLabel(
+								showLabels ? s.seriesName : undefined,
+								s.data?.estimate ? estimate : undefined
+							),
 							values: [vThis.fmtPricePerKWh(s.value[1], vThis.currency, true, true)],
 						}));
 						return tooltipTable(time, rows);
@@ -157,8 +157,17 @@ export default defineComponent({
 					},
 				}),
 				series: [
-					this.priceSeries(this.slots, priceColor, this.markPoints),
-					this.priceSeries(this.feedinSlots, exportColor),
+					...this.priceSeries(
+						this.slots,
+						priceColor,
+						this.$t("main.energyflow.gridImport"),
+						this.markPoints
+					),
+					...this.priceSeries(
+						this.feedinSlots,
+						colors.export || "",
+						this.$t("main.energyflow.pvExport")
+					),
 					...this.spikeMarkers(this.slots),
 					...this.spikeMarkers(this.feedinSlots),
 				],
@@ -166,6 +175,10 @@ export default defineComponent({
 		},
 	},
 	methods: {
+		rowLabel(name?: string, hint?: string): string | undefined {
+			if (name && hint) return `${name} (${hint})`;
+			return name || hint;
+		},
 		// dots at the axis ceiling flag slots whose price is clipped above the
 		// robust max, so a spike is distinct from a legit top-of-range price
 		spikeMarkers(slots: UiForecastSlot[]): Record<string, unknown>[] {
@@ -183,55 +196,67 @@ export default defineComponent({
 					z: 5,
 					data: clipped.map((s) => ({
 						value: [clampStart(s.start, this.startDate), cap],
+						spike: true,
 					})),
 					itemStyle: { color: this.spikeColor },
 				},
 			];
 		},
+		// known prices with gradient, estimates hatched with a thin line
 		priceSeries(
 			slots: UiForecastSlot[],
 			color: string,
+			name: string,
 			points?: { coord: [number, number]; value: string }[]
-		): Record<string, unknown> {
+		): Record<string, unknown>[] {
 			const avg = slots.length ? slots.reduce((a, s) => a + s.value, 0) / slots.length : 0;
 			const gradientDown = avg >= 0;
-			const last = slots[slots.length - 1];
-			return {
-				type: "line",
-				step: "end",
-				cursor: "default",
-				...hoverDot(color),
-				data: [
-					...slots.map((s) => ({
-						value: [clampStart(s.start, this.startDate), s.value],
-					})),
-					...(last ? [{ value: [last.end, last.value], closing: true }] : []),
-				],
-				lineStyle: { color, ...lineDefaults },
-				areaStyle: {
-					color: new echarts.graphic.LinearGradient(
-						0,
-						gradientDown ? 0 : 1,
-						0,
-						gradientDown ? 1 : 0,
-						[
-							{ offset: 0, color: lighterColor(color) || color },
-							{ offset: 0.75, color: color + "00" },
-							{ offset: 1, color: color + "00" },
-						]
-					),
-				},
-				...(points
-					? {
-							markPoint: markPointLabel(
-								color,
-								this.tooltipVisible ? [] : points,
-								this.startDate,
-								this.endDate
-							),
-						}
-					: {}),
+			const known = slots.filter((s) => !s.estimate);
+			const estimates = slots.filter((s) => s.estimate);
+			const gradient = new echarts.graphic.LinearGradient(
+				0,
+				gradientDown ? 0 : 1,
+				0,
+				gradientDown ? 1 : 0,
+				[
+					{ offset: 0, color: lighterColor(color) || color },
+					{ offset: 0.75, color: color + "00" },
+					{ offset: 1, color: color + "00" },
+				]
+			);
+			const segment = (part: UiForecastSlot[], estimate: boolean) => {
+				const last = part[part.length - 1];
+				// known prices close on the first estimate so both parts connect
+				const close = (!estimate && estimates[0]) || last;
+				const line = estimate ? { width: 1 } : {};
+				return {
+					name,
+					type: "line",
+					step: "end",
+					cursor: "default",
+					...hoverDot(color, line),
+					lineStyle: { color, ...lineDefaults, ...line },
+					areaStyle: { color: estimate ? hatchPattern(color) : gradient },
+					data: [
+						...part.map((s) => ({
+							value: [clampStart(s.start, this.startDate), s.value],
+							estimate,
+						})),
+						...(last && close
+							? [{ value: [last.end, close.value], closing: true }]
+							: []),
+					],
+				};
 			};
+			const markPoint = points && {
+				markPoint: markPointLabel(
+					color,
+					this.tooltipVisible ? [] : points,
+					this.startDate,
+					this.endDate
+				),
+			};
+			return [{ ...segment(known, false), ...markPoint }, segment(estimates, true)];
 		},
 	},
 });
