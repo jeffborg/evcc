@@ -58,6 +58,7 @@ With a band > 0 the (non-optimizer) planner follows its slots strictly and softe
   the band, an undefined rate (demand window) or a reached goal escalate to a hard stop.
   Logic lives in the fork-only `loadpoint_plan_softstop.go`; Update has two hook lines.
 - **Circuit limit ignored** for plan power (`EffectiveMaxPower`, `circuitMaxPower` commented out).
+- Documented (commented out) in `evcc.dist.yaml` under the loadpoint's `disable:` block.
 - `planner.WithClock` (fork-only `core/planner/options.go`) makes the planner testable on a
   mock clock.
 
