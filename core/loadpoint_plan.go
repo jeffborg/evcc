@@ -268,6 +268,17 @@ func (lp *Loadpoint) plannerActive(plannerRates ...api.Rates) (active bool) {
 		maxPower = power
 	}
 
+	// fork: an overrunning plan is re-planned continuously from now, padding missing
+	// rates, so its slots always cover now. Abort an overrun into a window with no
+	// defined planner tariff rate (e.g. a demand window intentionally left undefined)
+	// before the slot check instead of charging through it.
+	if !optimized && lp.planActive && lp.clock.Now().After(planTime) && plannerRateGap(rates, lp.clock.Now()) {
+		lp.log.DEBUG.Println("plan: overrun into undefined tariff window- aborting plan")
+		lp.finishPlan()
+		plan = nil
+		return false
+	}
+
 	var overrun string
 	if excessDuration := requiredDuration - lp.clock.Until(planTime); excessDuration > 0 {
 		overrun = fmt.Sprintf("overruns by %v, ", excessDuration.Round(time.Second))
@@ -328,12 +339,6 @@ func (lp *Loadpoint) plannerActive(plannerRates ...api.Rates) (active bool) {
 	} else if lp.planActive {
 		// planner was active (any slot, not necessarily previous slot) and charge goal has not yet been met
 		switch {
-		case lp.clock.Now().After(planTime) && !planTime.IsZero() && plannerRateGap(rates, lp.clock.Now()):
-			// overrun into a window with no defined planner tariff rate (e.g. a demand
-			// window intentionally left undefined) - abort instead of charging through it
-			lp.log.DEBUG.Println("plan: overrun into undefined tariff window- aborting plan")
-			lp.finishPlan()
-			return false
 		case lp.clock.Now().After(planTime) && !planTime.IsZero():
 			// if the plan did not (entirely) work, we may still be charging beyond plan end- in that case, continue charging
 			// TODO check when schedule is implemented

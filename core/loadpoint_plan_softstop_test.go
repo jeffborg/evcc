@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/core/loadpoint"
 	"github.com/evcc-io/evcc/core/planner"
+	"github.com/evcc-io/evcc/core/settings"
 	"github.com/evcc-io/evcc/util"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
@@ -347,4 +349,60 @@ func TestPlanSoftStopBandConfig(t *testing.T) {
 	lp = NewLoadpoint(util.NewLogger("foo"), nil)
 	assert.NoError(t, util.DecodeOther(map[string]any{}, lp))
 	assert.False(t, lp.planSoftStopEnabled(), "default is upstream behaviour")
+}
+
+// TestPlannerActiveOverrunDemandWindow verifies that an overrunning plan, which is
+// re-planned continuously from now with missing rates padded, stops when it runs
+// into a window without planner rate (demand window) instead of charging through it.
+func TestPlannerActiveOverrunDemandWindow(t *testing.T) {
+	for _, band := range []float64{0, 0.2} {
+		t.Run(fmt.Sprintf("band %.1f", band), func(t *testing.T) {
+			clck := clock.NewMock()
+			clck.Set(time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC))
+			start := clck.Now()
+
+			// rates for 1h, demand window 1h-2h left undefined, rates again from 2h
+			rates := append(slotRates(start, 0.10, 0.10, 0.10, 0.10), slotRates(start.Add(2*time.Hour), 0.10, 0.10)...)
+			lp := newSoftStopLoadpoint(t, clck, &rates)
+			lp.settings = settings.NewDatabaseSettingsAdapter("foo")
+			lp.PlanSoftStopBand = band
+
+			// 20kWh until 30min cannot be met- the plan overruns
+			lp.planTime = start.Add(30 * time.Minute)
+			lp.planEnergy = 20
+
+			for _, m := range []int{0, 29, 31, 45, 59} {
+				clck.Set(start.Add(time.Duration(m) * time.Minute))
+				assert.True(t, lp.plannerActive(rates), "t+%dm", m)
+			}
+
+			// overrun into the demand window aborts the plan
+			clck.Set(start.Add(61 * time.Minute))
+			assert.False(t, lp.plannerActive(rates), "demand window")
+			assert.Zero(t, lp.planEnergy, "plan finished")
+
+			// and stays stopped after the window
+			clck.Set(start.Add(121 * time.Minute))
+			assert.False(t, lp.plannerActive(rates), "after demand window")
+		})
+	}
+}
+
+// TestPlannerActiveOverrunCovered verifies that an overrunning plan keeps charging
+// while planner rates are defined, and past the published horizon.
+func TestPlannerActiveOverrunCovered(t *testing.T) {
+	clck := clock.NewMock()
+	clck.Set(time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC))
+	start := clck.Now()
+
+	rates := slotRates(start, 0.10, 0.10, 0.10, 0.10)
+	lp := newSoftStopLoadpoint(t, clck, &rates)
+	lp.settings = settings.NewDatabaseSettingsAdapter("foo")
+	lp.planTime = start.Add(30 * time.Minute)
+	lp.planEnergy = 20
+
+	for _, m := range []int{0, 31, 59, 61, 90} {
+		clck.Set(start.Add(time.Duration(m) * time.Minute))
+		assert.True(t, lp.plannerActive(rates), "t+%dm", m)
+	}
 }
