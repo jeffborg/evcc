@@ -170,6 +170,9 @@ type Loadpoint struct {
 	criticalSlotEnd  time.Time        // optimizer: deadline critical verdict held until
 	planActive       bool             // charge plan exists and has a currently active slot
 	planOverrunSent  bool             // notification has been sent already
+	planRefPrice     float64          // fork: highest slot price of the active plan, soft stop reference
+	planCharging     bool             // fork: last cycle was charged by the planner
+	planSoftStop     bool             // fork: plan soft stop running at min current until pv disable delay
 	planLocked       PlanLock         // locked plan
 
 	// optimizer
@@ -2682,6 +2685,11 @@ NO_DIM:
 	minSocNotReached := lp.minSocNotReached()
 	lp.publish(keys.MinSocNotReached, minSocNotReached)
 
+	// fork: hand a marginal plan stop over to the pv disable countdown
+	if !minSocNotReached && !plannerActive {
+		lp.planSoftStopUpdate(mode, consumption)
+	}
+
 	// execute loading strategy
 	switch {
 	case !lp.connected():
@@ -2715,6 +2723,7 @@ NO_DIM:
 	case minSocNotReached || plannerActive:
 		err = lp.fastCharging()
 		lp.elapsePVTimer() // let PV mode disable immediately afterwards
+		lp.planSoftStopCharging(plannerActive && suggestion == nil)
 
 	case lp.LimitEnergyReached() && !optimizerPlan:
 		lp.log.DEBUG.Printf("limitEnergy reached: %.0fkWh > %0.1fkWh", lp.GetChargedEnergy()/1e3, lp.limitEnergy)

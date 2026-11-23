@@ -39,6 +39,27 @@ Upstream now ships its own optimizer; the fork layers these on top of it:
 - **`batteryPower` default `10000`** W (upstream 6000).
 - Runs against a self-hosted optimizer (`OPTIMIZER_URI`).
 
+### Planner (`core/loadpoint_plan.go`, `core/loadpoint_plan_softstop.go`)
+Amber bills in 5-min intervals; the planner tariff's current 15-min slot is updated each
+interval (~20s in). The fork therefore makes the (non-optimizer) planner follow its slots
+strictly and softens marginal stops instead:
+
+- **Strict slots** — `plannerActive` is only true inside a planned slot. Upstream's short-slot
+  deferral, stay-until-slot-end, short-remainder and avoid-restart continuations are removed.
+  "Continue after target time" and `continuous` strategy are kept.
+- **Demand-window abort** — demand windows are left out of the planner tariff; an overrun past
+  the target time into such a gap (`plannerRateGap`) finishes the plan instead of charging on.
+- **Soft stop** — while active the plan's highest slot price is kept as `planRefPrice`. When
+  planner charging ends in smart mode with the current planner price within
+  `planSoftStopBand` (20%, of |ref|) and the plan still pending, the pv timer is *reset*
+  instead of elapsed (`elapsePVTimer` in Update's planner branch), so pv mode holds min
+  current and runs `Disable.Delay`. A re-activated plan returns to full power; a price above
+  the band, an undefined rate (demand window) or a reached goal escalate to a hard stop.
+  Logic lives in the fork-only `loadpoint_plan_softstop.go`; Update has two hook lines.
+- **Circuit limit ignored** for plan power (`EffectiveMaxPower`, `circuitMaxPower` commented out).
+- `planner.WithClock` (fork-only `core/planner/options.go`) makes the planner testable on a
+  mock clock.
+
 ### Converged with / adopted from upstream (no longer fork-unique)
 - **Discharge-to-grid** (`batteryGridDischarge` → `bat.DischargeToGrid`) — the fork had this
   early; **upstream has since added an equivalent** (post-0.314.1), so it converges on the
