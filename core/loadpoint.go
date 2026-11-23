@@ -107,6 +107,9 @@ type Loadpoint struct {
 	Enable, Disable loadpoint.ThresholdConfig
 	Ui              loadpoint.UIConfig // display-only, not used in control logic
 
+	// fork: plan soft stop band relative to the plan's max slot price, 0 keeps upstream planner behaviour
+	PlanSoftStopBand float64 `mapstructure:"planSoftStopBand"`
+
 	// from yaml
 	DefaultMode     api.ChargeMode `mapstructure:"mode"`            // Default charge mode, used for disconnect
 	Title           string         `mapstructure:"title"`           // UI title

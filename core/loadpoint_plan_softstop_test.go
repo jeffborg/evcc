@@ -26,19 +26,20 @@ func newSoftStopLoadpoint(t *testing.T, clck *clock.Mock, rates *api.Rates) *Loa
 	log := util.NewLogger("foo")
 
 	return &Loadpoint{
-		log:            log,
-		clock:          clck,
-		charger:        api.NewMockCharger(ctrl),
-		planner:        planner.New(log, tf, planner.WithClock(clck)),
-		status:         api.StatusC,
-		enabled:        true,
-		minCurrent:     minA,
-		maxCurrent:     maxA,
-		phases:         3,
-		measuredPhases: 3,
-		solarShare:     1, // pv mode requires surplus for min current
-		planTime:       clck.Now().Add(4 * time.Hour),
-		planEnergy:     5.52,
+		log:              log,
+		clock:            clck,
+		charger:          api.NewMockCharger(ctrl),
+		planner:          planner.New(log, tf, planner.WithClock(clck)),
+		status:           api.StatusC,
+		enabled:          true,
+		minCurrent:       minA,
+		maxCurrent:       maxA,
+		phases:           3,
+		measuredPhases:   3,
+		solarShare:       1, // pv mode requires surplus for min current
+		PlanSoftStopBand: 0.2,
+		planTime:         clck.Now().Add(4 * time.Hour),
+		planEnergy:       5.52,
 		Disable: loadpoint.ThresholdConfig{
 			Delay: softStopDisableDelay,
 		},
@@ -73,24 +74,27 @@ func TestPlanSoftStopWithin(t *testing.T) {
 		name  string
 		rates api.Rates
 		ref   float64
+		band  float64
 		want  bool
 	}{
-		{"below ref", rates(0.10), 0.12, true},
-		{"at ref", rates(0.12), 0.12, true},
-		{"within band", rates(0.14), 0.12, true},
-		{"band edge", rates(0.15), 0.125, true},
-		{"above band", rates(0.15), 0.12, false},
-		{"negative ref within band", rates(-0.09), -0.10, true}, // band uses |ref|: -0.10+0.02
-		{"negative ref above band", rates(-0.07), -0.10, false},
-		{"zero ref above zero", rates(0.01), 0, false},
-		{"undefined window", slotRates(now.Add(time.Hour), 0.01), 0.12, false},
-		{"no rates", nil, 0.12, false},
-		{"no reference", rates(0.01), planMaxPrice(nil), false},
+		{"below ref", rates(0.10), 0.12, 0.2, true},
+		{"at ref", rates(0.12), 0.12, 0.2, true},
+		{"within band", rates(0.14), 0.12, 0.2, true},
+		{"band edge", rates(0.15), 0.125, 0.2, true},
+		{"above band", rates(0.15), 0.12, 0.2, false},
+		{"negative ref within band", rates(-0.09), -0.10, 0.2, true}, // band uses |ref|: -0.10+0.02
+		{"negative ref above band", rates(-0.07), -0.10, 0.2, false},
+		{"zero ref above zero", rates(0.01), 0, 0.2, false},
+		{"undefined window", slotRates(now.Add(time.Hour), 0.01), 0.12, 0.2, false},
+		{"no rates", nil, 0.12, 0.2, false},
+		{"no reference", rates(0.01), planMaxPrice(nil), 0.2, false},
+		{"configurable band", rates(0.17), 0.12, 0.5, true},
+		{"band disabled", rates(0.10), 0.12, 0, false},
 	}
 
 	for _, tc := range tc {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, planSoftStopWithin(tc.rates, at, tc.ref))
+			assert.Equal(t, tc.want, planSoftStopWithin(tc.rates, at, tc.ref, tc.band))
 		})
 	}
 }
@@ -124,6 +128,35 @@ func TestPlannerActiveStrictSlots(t *testing.T) {
 	// next slot
 	clck.Set(start.Add(30*time.Minute + 10*time.Second))
 	assert.True(t, lp.plannerActive(rates), "next slot")
+}
+
+// TestPlannerActiveUpstream verifies that without a soft stop band the planner
+// keeps upstream's short slot deferral and re-start avoidance.
+func TestPlannerActiveUpstream(t *testing.T) {
+	clck := clock.NewMock()
+	start := clck.Now()
+
+	rates := slotRates(start, 0.10, 0.50, 0.12, 0.11, 0.50, 0.50, 0.50, 0.50,
+		0.50, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50, 0.50)
+	lp := newSoftStopLoadpoint(t, clck, &rates)
+	lp.PlanSoftStopBand = 0
+
+	// short remainder of a slot with a later successor is deferred
+	clck.Set(start.Add(13 * time.Minute))
+	assert.False(t, lp.plannerActive(rates), "short slot remainder")
+
+	// running plan avoids the re-start right before the next slot
+	lp.setPlanActive(true)
+	clck.Set(start.Add(29*time.Minute + 45*time.Second))
+	assert.True(t, lp.plannerActive(rates), "just before next slot")
+
+	// soft stop is never armed
+	lp.planRefPrice = 0.12
+	lp.elapsePVTimer()
+	lp.planSoftStopCharging(true)
+	lp.planSoftStopUpdate(api.ModeSmart, slotRates(start.Add(29*time.Minute), 0.10))
+	assert.False(t, lp.planSoftStop)
+	assert.Equal(t, elapsed, lp.pvTimer)
 }
 
 func TestPlanSoftStopUpdate(t *testing.T) {
@@ -302,4 +335,16 @@ func TestPlanSoftStopPVCountdown(t *testing.T) {
 		lp := stop(t, 0.30)
 		assert.Equal(t, 0.0, lp.pvMaxCurrent(importPower, 0, false, false))
 	})
+}
+
+func TestPlanSoftStopBandConfig(t *testing.T) {
+	// loadpoint yaml is decoded like NewLoadpointFromConfig does
+	lp := NewLoadpoint(util.NewLogger("foo"), nil)
+	assert.NoError(t, util.DecodeOther(map[string]any{"planSoftStopBand": 0.3}, lp))
+	assert.Equal(t, 0.3, lp.PlanSoftStopBand)
+	assert.True(t, lp.planSoftStopEnabled())
+
+	lp = NewLoadpoint(util.NewLogger("foo"), nil)
+	assert.NoError(t, util.DecodeOther(map[string]any{}, lp))
+	assert.False(t, lp.planSoftStopEnabled(), "default is upstream behaviour")
 }

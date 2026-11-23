@@ -275,9 +275,15 @@ func (lp *Loadpoint) plannerActive(plannerRates ...api.Rates) (active bool) {
 	}
 
 	if active {
-		// fork: the planner starts and stops strictly on its slots- no short slot
-		// deferral. Marginal stops are softened by the plan soft stop instead.
-		lp.planRefPrice = planMaxPrice(plan)
+		// fork: with plan soft stop the planner starts and stops strictly on its slots-
+		// no short slot deferral. Marginal stops are softened at min current instead.
+		if lp.planSoftStopEnabled() {
+			lp.planRefPrice = planMaxPrice(plan)
+		} else if slotRemaining := lp.clock.Until(activeSlot.End); !lp.planActive && slotRemaining < tariff.SlotDuration-time.Minute && planner.SlotHasLaterSuccessor(activeSlot, plan) {
+			// short slots cost an extra start/stop cycle, defer them if a later slot follows anyway
+			lp.log.DEBUG.Printf("plan: slot too short- ignoring remaining %v", slotRemaining.Round(time.Second))
+			return false
+		}
 
 		// lock the goal when soc-based plan becomes active for the first time
 		if lp.planLocked.Id == 0 && isSocBased {
@@ -300,8 +306,18 @@ func (lp *Loadpoint) plannerActive(plannerRates ...api.Rates) (active bool) {
 			// TODO check when schedule is implemented
 			lp.log.DEBUG.Println("plan: continuing after target time")
 			return true
-		// fork: no continuation until slot end, for a short remainder or to avoid a
-		// re-start- the plan soft stop bridges marginal gaps at min current instead
+		// fork: with plan soft stop there is no continuation until slot end, for a short
+		// remainder or to avoid a re-start- marginal gaps are bridged at min current instead
+		case !lp.planSoftStopEnabled() && lp.clock.Now().Before(lp.planSlotEnd) && !lp.planSlotEnd.IsZero() && requiredDuration > strategy.Precondition:
+			// don't stop an already running slot if goal was not met
+			lp.log.DEBUG.Printf("plan: continuing until end of slot at %s", lp.planSlotEnd.Round(time.Second).Local())
+			return true
+		case !lp.planSoftStopEnabled() && requiredDuration < tariff.SlotDuration && requiredDuration > strategy.Precondition:
+			lp.log.DEBUG.Printf("plan: continuing for remaining %v", requiredDuration.Round(time.Second))
+			return true
+		case !lp.planSoftStopEnabled() && lp.clock.Until(planStart) < tariff.SlotDuration-time.Minute:
+			lp.log.DEBUG.Printf("plan: avoid re-start within %v, continuing for remaining %v", tariff.SlotDuration, lp.clock.Until(planStart).Round(time.Second))
+			return true
 		case strategy.Continuous && requiredDuration > strategy.Precondition:
 			lp.log.DEBUG.Printf("plan: ignoring restart at %s for continuous charging", planStart.Round(time.Second).Local())
 			planStart = lp.clock.Now()

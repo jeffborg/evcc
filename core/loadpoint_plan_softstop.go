@@ -7,18 +7,14 @@ import (
 	"github.com/evcc-io/evcc/api"
 )
 
-// fork: planner soft stop
+// fork: planner soft stop, enabled by the loadpoint's planSoftStopBand (> 0)
 //
 // The planner starts and stops strictly on its slots. When planner charging ends
-// while the current planner price is still within planSoftStopBand of the most
-// expensive slot of the plan, charging is not stopped hard. Instead the pv timer
+// while the current planner price is still within the band of the most expensive
+// slot of the plan, charging is not stopped hard. Instead the pv timer
 // is reset so smart mode drops to min current and runs its disable countdown
 // (Disable.Delay). A re-activated plan returns to full power, a price above the
 // band or an undefined tariff window (demand window) stops immediately.
-
-// planSoftStopBand is the relative band above the plan's reference price
-// within which a plan stop is handed over to the pv disable countdown
-const planSoftStopBand = 0.2
 
 // planMaxPrice returns the highest slot price of the plan
 func planMaxPrice(plan api.Rates) float64 {
@@ -29,10 +25,16 @@ func planMaxPrice(plan api.Rates) float64 {
 	return res
 }
 
-// planSoftStopWithin reports whether the rate at t is within the soft stop band of ref.
+// planSoftStopEnabled reports whether the plan soft stop is configured. Otherwise
+// the planner keeps upstream's start/stop behaviour.
+func (lp *Loadpoint) planSoftStopEnabled() bool {
+	return lp.PlanSoftStopBand > 0
+}
+
+// planSoftStopWithin reports whether the rate at t is within the relative band above ref.
 // Missing rates (no tariff or an undefined demand window) are never within the band.
-func planSoftStopWithin(rates api.Rates, t time.Time, ref float64) bool {
-	if math.IsInf(ref, 0) || math.IsNaN(ref) {
+func planSoftStopWithin(rates api.Rates, t time.Time, ref, band float64) bool {
+	if band <= 0 || math.IsInf(ref, 0) || math.IsNaN(ref) {
 		return false
 	}
 
@@ -41,7 +43,7 @@ func planSoftStopWithin(rates api.Rates, t time.Time, ref float64) bool {
 		return false
 	}
 
-	return rate.Value <= ref+planSoftStopBand*math.Abs(ref)
+	return rate.Value <= ref+band*math.Abs(ref)
 }
 
 // planPending reports whether the charging plan still requires charging
@@ -69,13 +71,16 @@ func (lp *Loadpoint) planSoftStopUpdate(mode api.ChargeMode, rates api.Rates) {
 	lp.planCharging = false
 
 	within := func() bool {
-		return planSoftStopWithin(rates, lp.clock.Now(), lp.planRefPrice)
+		return planSoftStopWithin(rates, lp.clock.Now(), lp.planRefPrice, lp.PlanSoftStopBand)
 	}
 
 	switch {
+	case charging && !lp.planSoftStopEnabled():
+		// upstream behaviour: the elapsed pv timer stops immediately
+
 	case charging:
 		if mode == api.ModeSmart && lp.enabled && within() && lp.planPending() {
-			lp.log.DEBUG.Printf("plan: soft stop- price within %.0f%% of %.3f, continuing at min current until pv disable delay", planSoftStopBand*100, lp.planRefPrice)
+			lp.log.DEBUG.Printf("plan: soft stop- price within %.0f%% of %.3f, continuing at min current until pv disable delay", lp.PlanSoftStopBand*100, lp.planRefPrice)
 			lp.planSoftStop = true
 			lp.resetPVTimer()
 			return
