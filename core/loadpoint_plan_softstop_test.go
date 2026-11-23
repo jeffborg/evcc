@@ -10,6 +10,7 @@ import (
 	"github.com/evcc-io/evcc/core/loadpoint"
 	"github.com/evcc-io/evcc/core/planner"
 	"github.com/evcc-io/evcc/core/settings"
+	"github.com/evcc-io/evcc/messenger"
 	"github.com/evcc-io/evcc/util"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
@@ -31,6 +32,7 @@ func newSoftStopLoadpoint(t *testing.T, clck *clock.Mock, rates *api.Rates) *Loa
 		log:              log,
 		clock:            clck,
 		charger:          api.NewMockCharger(ctrl),
+		pushChan:         make(chan messenger.Event, 10), // plan overrun notification
 		planner:          planner.New(log, tf, planner.WithClock(clck)),
 		status:           api.StatusC,
 		enabled:          true,

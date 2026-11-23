@@ -9,6 +9,7 @@ import (
 	"github.com/evcc-io/evcc/core/planner"
 	"github.com/evcc-io/evcc/core/soc"
 	"github.com/evcc-io/evcc/core/vehicle"
+	"github.com/evcc-io/evcc/tariff"
 )
 
 // TODO planActive is not guarded by mutex
