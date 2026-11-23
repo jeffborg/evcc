@@ -11,11 +11,6 @@ import (
 	"github.com/evcc-io/evcc/core/vehicle"
 )
 
-const (
-	smallSlotDuration    = 4 * time.Minute  // small planner slot duration we might ignore
-	restartGuardDuration = 30 * time.Second // avoid immediate stop/start flapping around plan transitions
-)
-
 // TODO planActive is not guarded by mutex
 
 // PlanLock contains information about a locked plan.
@@ -280,13 +275,9 @@ func (lp *Loadpoint) plannerActive(plannerRates ...api.Rates) (active bool) {
 	}
 
 	if active {
-		// short slots cost an extra start/stop cycle, defer them if a later slot follows anyway.
-		// fork: threshold is smallSlotDuration (4min), not upstream's full tariff.SlotDuration,
-		// so a nearly-full slot is still charged rather than skipped
-		if slotRemaining := lp.clock.Until(activeSlot.End); !lp.planActive && slotRemaining < smallSlotDuration-time.Minute && planner.SlotHasLaterSuccessor(activeSlot, plan) {
-			lp.log.DEBUG.Printf("plan: slot too short- ignoring remaining %v", slotRemaining.Round(time.Second))
-			return false
-		}
+		// fork: the planner starts and stops strictly on its slots- no short slot
+		// deferral. Marginal stops are softened by the plan soft stop instead.
+		lp.planRefPrice = planMaxPrice(plan)
 
 		// lock the goal when soc-based plan becomes active for the first time
 		if lp.planLocked.Id == 0 && isSocBased {
@@ -309,16 +300,8 @@ func (lp *Loadpoint) plannerActive(plannerRates ...api.Rates) (active bool) {
 			// TODO check when schedule is implemented
 			lp.log.DEBUG.Println("plan: continuing after target time")
 			return true
-		// case lp.clock.Now().Before(lp.planSlotEnd) && !lp.planSlotEnd.IsZero() && requiredDuration > strategy.Precondition:
-		// don't stop an already running slot if goal was not met
-		// lp.log.DEBUG.Printf("plan: continuing until end of slot at %s", lp.planSlotEnd.Round(time.Second).Local())
-		// return active
-		case requiredDuration < smallSlotDuration && requiredDuration > strategy.Precondition:
-			lp.log.DEBUG.Printf("plan: continuing for remaining %v", requiredDuration.Round(time.Second))
-			return true
-		case !planStart.IsZero() && lp.clock.Until(planStart) < restartGuardDuration:
-			lp.log.DEBUG.Printf("plan: avoid re-start within %v, continuing for remaining %v", restartGuardDuration, lp.clock.Until(planStart).Round(time.Second))
-			return true
+		// fork: no continuation until slot end, for a short remainder or to avoid a
+		// re-start- the plan soft stop bridges marginal gaps at min current instead
 		case strategy.Continuous && requiredDuration > strategy.Precondition:
 			lp.log.DEBUG.Printf("plan: ignoring restart at %s for continuous charging", planStart.Round(time.Second).Local())
 			planStart = lp.clock.Now()
