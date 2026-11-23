@@ -41,17 +41,18 @@ Upstream now ships its own optimizer; the fork layers these on top of it:
 
 ### Planner (`core/loadpoint_plan.go`, `core/loadpoint_plan_softstop.go`)
 Amber bills in 5-min intervals; the planner tariff's current 15-min slot is updated each
-interval (~20s in). The fork therefore makes the (non-optimizer) planner follow its slots
-strictly and softens marginal stops instead:
+interval (~20s in). Opt-in per loadpoint in `evcc.yaml` with **`planSoftStopBand`** (e.g. `0.2`);
+**unset/0 keeps upstream's planner behaviour** (slot deferral/continuation rules, hard stop).
+With a band > 0 the (non-optimizer) planner follows its slots strictly and softens marginal stops:
 
 - **Strict slots** — `plannerActive` is only true inside a planned slot. Upstream's short-slot
-  deferral, stay-until-slot-end, short-remainder and avoid-restart continuations are removed.
+  deferral, stay-until-slot-end, short-remainder and avoid-restart continuations are skipped.
   "Continue after target time" and `continuous` strategy are kept.
-- **Demand-window abort** — demand windows are left out of the planner tariff; an overrun past
+- **Demand-window abort** (always, independent of the band) — demand windows are left out of the planner tariff; an overrun past
   the target time into such a gap (`plannerRateGap`) finishes the plan instead of charging on.
 - **Soft stop** — while active the plan's highest slot price is kept as `planRefPrice`. When
   planner charging ends in smart mode with the current planner price within
-  `planSoftStopBand` (20%, of |ref|) and the plan still pending, the pv timer is *reset*
+  `planSoftStopBand` (relative to |ref|) and the plan still pending, the pv timer is *reset*
   instead of elapsed (`elapsePVTimer` in Update's planner branch), so pv mode holds min
   current and runs `Disable.Delay`. A re-activated plan returns to full power; a price above
   the band, an undefined rate (demand window) or a reached goal escalate to a hard stop.
