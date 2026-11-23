@@ -48,8 +48,11 @@ With a band > 0 the (non-optimizer) planner follows its slots strictly and softe
 - **Strict slots** — `plannerActive` is only true inside a planned slot. Upstream's short-slot
   deferral, stay-until-slot-end, short-remainder and avoid-restart continuations are skipped.
   "Continue after target time" and `continuous` strategy are kept.
-- **Demand-window abort** (always, independent of the band) — demand windows are left out of the planner tariff; an overrun past
-  the target time into such a gap (`plannerRateGap`) finishes the plan instead of charging on.
+- **Demand-window abort** (always, independent of the band) — demand windows are left out of
+  the planner tariff. An overrunning plan is re-planned continuously from now with missing rates
+  padded, so its slots always cover now and the post-slot `switch` never sees an overrun; the
+  abort (`plannerRateGap`) therefore runs *before* the slot check and finishes the plan instead of
+  charging through the window.
 - **Soft stop** — while active the plan's highest slot price is kept as `planRefPrice`. When
   planner charging ends in smart mode with the current planner price within
   `planSoftStopBand` (relative to |ref|) and the plan still pending, the pv timer is *reset*
