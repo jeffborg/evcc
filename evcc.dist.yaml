@@ -137,6 +137,13 @@ loadpoints:
     disable: # smart mode disable behavior
       delay: 3m # threshold must be exceeded for this long
       threshold: 0 # maximum import power (W)
+    # fork: plan soft stop (unset or 0 keeps the upstream planner behaviour)
+    # With a band > 0 the planner charges strictly within its planned slots. When planner charging
+    # ends in smart mode while the current planner price is at most the plan's most expensive slot
+    # price + band * |price|, charging drops to min current and runs the disable delay above instead
+    # of stopping at once. A re-activated plan returns to full power; a higher price, a slot without
+    # a planner rate (e.g. an omitted demand window) or a reached plan goal stop immediately.
+    # planSoftStopBand: 0.2 # relative band above the plan's max slot price (0.2 = 20%)
 
 # tariffs are the fixed or variable tariffs
 tariffs:

@@ -181,8 +181,36 @@ func (lp *Loadpoint) fullSocPlanContinues(goal float64, isSocBased bool) bool {
 	return lp.planActive && isSocBased && goal == 100
 }
 
-// plannerActive checks if the charging plan has a currently active slot
-func (lp *Loadpoint) plannerActive() (active bool) {
+// plannerRateGap reports whether the planner tariff is defined but has no rate
+// slot covering t - e.g. a demand window intentionally left undefined. Planner
+// rates are forward-pruned (slots before the current period are dropped), so a
+// t before the first published slot means the current period itself is
+// undefined - a leading demand-window gap - and counts as a gap. Only t beyond
+// the last published slot is excluded (the not-yet-published horizon), so
+// static/no-tariff setups and the region past the horizon keep the default
+// overrun behavior.
+func plannerRateGap(rates api.Rates, t time.Time) bool {
+	if len(rates) == 0 {
+		return false
+	}
+	// beyond the published horizon we have no data - keep the overrun behavior
+	if !t.Before(rates[len(rates)-1].End) {
+		return false
+	}
+	_, err := rates.At(t)
+	return err != nil
+}
+
+// plannerActive checks if the charging plan has a currently active slot.
+// rates are the planner tariff rates, used to detect overrun into an
+// undefined-tariff (demand) window. The parameter is variadic so upstream's
+// no-argument call sites stay source-compatible; omitting it disables the
+// gap check and keeps the default overrun behavior.
+func (lp *Loadpoint) plannerActive(plannerRates ...api.Rates) (active bool) {
+	var rates api.Rates
+	if len(plannerRates) > 0 {
+		rates = plannerRates[0]
+	}
 	defer func() {
 		lp.setPlanActive(active)
 	}()
@@ -240,6 +268,17 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 		maxPower = power
 	}
 
+	// fork: an overrunning plan is re-planned continuously from now, padding missing
+	// rates, so its slots always cover now. Abort an overrun into a window with no
+	// defined planner tariff rate (e.g. a demand window intentionally left undefined)
+	// before the slot check instead of charging through it.
+	if !optimized && lp.planActive && lp.clock.Now().After(planTime) && plannerRateGap(rates, lp.clock.Now()) {
+		lp.log.DEBUG.Println("plan: overrun into undefined tariff window- aborting plan")
+		lp.finishPlan()
+		plan = nil
+		return false
+	}
+
 	var overrun string
 	if excessDuration := requiredDuration - lp.clock.Until(planTime); excessDuration > 0 {
 		overrun = fmt.Sprintf("overruns by %v, ", excessDuration.Round(time.Second))
@@ -280,8 +319,12 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 	}
 
 	if active {
-		// short slots cost an extra start/stop cycle, defer them if a later slot follows anyway
-		if slotRemaining := lp.clock.Until(activeSlot.End); !lp.planActive && slotRemaining < tariff.SlotDuration-time.Minute && planner.SlotHasLaterSuccessor(activeSlot, plan) {
+		// fork: with plan soft stop the planner starts and stops strictly on its slots-
+		// no short slot deferral. Marginal stops are softened at min current instead.
+		if lp.planSoftStopEnabled() {
+			lp.planRefPrice = planMaxPrice(plan)
+		} else if slotRemaining := lp.clock.Until(activeSlot.End); !lp.planActive && slotRemaining < tariff.SlotDuration-time.Minute && planner.SlotHasLaterSuccessor(activeSlot, plan) {
+			// short slots cost an extra start/stop cycle, defer them if a later slot follows anyway
 			lp.log.DEBUG.Printf("plan: slot too short- ignoring remaining %v", slotRemaining.Round(time.Second))
 			return false
 		}
@@ -301,14 +344,16 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 			// TODO check when schedule is implemented
 			lp.log.DEBUG.Println("plan: continuing after target time")
 			return true
-		case lp.clock.Now().Before(lp.planSlotEnd) && !lp.planSlotEnd.IsZero() && requiredDuration > strategy.Precondition:
+		// fork: with plan soft stop there is no continuation until slot end, for a short
+		// remainder or to avoid a re-start- marginal gaps are bridged at min current instead
+		case !lp.planSoftStopEnabled() && lp.clock.Now().Before(lp.planSlotEnd) && !lp.planSlotEnd.IsZero() && requiredDuration > strategy.Precondition:
 			// don't stop an already running slot if goal was not met
 			lp.log.DEBUG.Printf("plan: continuing until end of slot at %s", lp.planSlotEnd.Round(time.Second).Local())
 			return true
-		case requiredDuration < tariff.SlotDuration && requiredDuration > strategy.Precondition:
+		case !lp.planSoftStopEnabled() && requiredDuration < tariff.SlotDuration && requiredDuration > strategy.Precondition:
 			lp.log.DEBUG.Printf("plan: continuing for remaining %v", requiredDuration.Round(time.Second))
 			return true
-		case lp.clock.Until(planStart) < tariff.SlotDuration-time.Minute:
+		case !lp.planSoftStopEnabled() && lp.clock.Until(planStart) < tariff.SlotDuration-time.Minute:
 			lp.log.DEBUG.Printf("plan: avoid re-start within %v, continuing for remaining %v", tariff.SlotDuration, lp.clock.Until(planStart).Round(time.Second))
 			return true
 		case strategy.Continuous && requiredDuration > strategy.Precondition:
