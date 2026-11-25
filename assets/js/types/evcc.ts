@@ -1667,6 +1667,7 @@ export interface BatteryDetail {
   title: string; // Display title
   name: string; // Internal name/identifier
   capacity: number; // Battery capacity (kWh)
+  planGoals?: { time: string; soc: number }[]; // Vehicle plan goals within the horizon (%), not capped at the limit
 }
 
 // Single profile summarized into the household demand time series
